@@ -1,0 +1,139 @@
+services:
+  example-service:
+    image: ghcr.io/merchfactory/example-service@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    restart: unless-stopped
+    labels:
+      com.merchfactory.managed: "true"
+      com.merchfactory.cleanup.protect: "false"
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 1.0
+    cpu_shares: 512
+    mem_limit: 512m
+    mem_reservation: 256m
+    pids_limit: 256
+    volumes:
+      - type: bind
+        source: ${EXAMPLE_SERVICE_DATA_DIR:-/srv/merchfactory/persistent/example-service/data}
+        target: /var/lib/example-service
+    tmpfs:
+      - /tmp
+    environment:
+      APP_ENV: development
+      API_TOKEN_FILE: /run/secrets/api-token
+      DATABASE_PASSWORD_FILE: /run/secrets/database-password
+    secrets:
+      - source: example-service-api-token
+        target: api-token
+      - source: example-database-password
+        target: database-password
+    healthcheck:
+      test: ["CMD", "example-service", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 30s
+    networks:
+      - edge
+      - app
+
+  example-worker:
+    image: ghcr.io/merchfactory/example-worker@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+    restart: unless-stopped
+    labels:
+      com.merchfactory.managed: "true"
+      com.merchfactory.cleanup.protect: "false"
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    cpu_shares: 256
+    mem_limit: 512m
+    mem_reservation: 256m
+    pids_limit: 128
+    tmpfs:
+      - /tmp
+    environment:
+      DATABASE_PASSWORD_FILE: /run/secrets/database-password
+    secrets:
+      - source: example-database-password
+        target: database-password
+    healthcheck:
+      test: ["CMD", "example-worker", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 30s
+    networks:
+      - app
+      - data
+
+  example-database:
+    image: ghcr.io/merchfactory/example-database@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+    restart: unless-stopped
+    labels:
+      com.merchfactory.managed: "true"
+      com.merchfactory.cleanup.protect: "false"
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 1.0
+    cpu_shares: 1024
+    mem_limit: 1g
+    mem_reservation: 512m
+    pids_limit: 256
+    volumes:
+      - example-database-data:/var/lib/example-database
+    tmpfs:
+      - /tmp
+    environment:
+      DATABASE_PASSWORD_FILE: /run/secrets/database-password
+    secrets:
+      - source: example-database-password
+        target: database-password
+    healthcheck:
+      test: ["CMD", "example-database", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 30s
+    networks:
+      - data
+
+volumes:
+  example-database-data:
+    labels:
+      com.merchfactory.persistence.class: "A"
+      com.merchfactory.backup.required: "true"
+      com.merchfactory.backup.method: application-native
+
+secrets:
+  example-service-api-token:
+    file: ${EXAMPLE_SERVICE_API_TOKEN_FILE:-/srv/merchfactory/secrets/example-service/api-token}
+
+  example-database-password:
+    file: ${EXAMPLE_DATABASE_PASSWORD_FILE:-/srv/merchfactory/secrets/example-service/database-password}
+
+networks:
+  edge:
+    external: true
+    name: ${MERCHFACTORY_EDGE_NETWORK:-merchfactory-edge}
+
+  app:
+    internal: true
+
+  data:
+    internal: true

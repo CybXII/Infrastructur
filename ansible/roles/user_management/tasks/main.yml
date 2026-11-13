@@ -1,0 +1,98 @@
+---
+- name: Benutzerverwaltungsdaten validieren
+  ansible.builtin.assert:
+    that:
+      - user_management_groups is iterable
+      - user_management_users is iterable
+      - user_management_absent_users is iterable
+    fail_msg: >-
+      Benutzer- und Gruppendefinitionen müssen als Listen bereitgestellt werden.
+
+- name: Deklarierte Gruppen anlegen
+  ansible.builtin.group:
+    name: "{{ item.name }}"
+    gid: "{{ item.gid | default(omit) }}"
+    system: "{{ item.system | default(false) }}"
+    state: present
+  loop: "{{ user_management_groups }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Deklarierte Benutzer anlegen
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    uid: "{{ item.uid | default(omit) }}"
+    group: "{{ item.primary_group | default(omit) }}"
+    groups: "{{ item.groups | default([]) | join(',') }}"
+    append: false
+    shell: "{{ item.shell | default('/bin/bash') }}"
+    home: "{{ item.home | default(omit) }}"
+    create_home: "{{ item.create_home | default(true) }}"
+    system: "{{ item.system | default(false) }}"
+    password_lock: "{{ item.password_lock | default(true) }}"
+    state: present
+  loop: "{{ user_management_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: SSH-Verzeichnis absichern
+  ansible.builtin.file:
+    path: "{{ item.home | default('/home/' ~ item.name) }}/.ssh"
+    state: directory
+    owner: "{{ item.name }}"
+    group: "{{ item.primary_group | default(item.name) }}"
+    mode: '0700'
+  loop: "{{ user_management_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - item.create_home | default(true) | bool
+    - item.authorized_keys | default([]) | length > 0
+
+- name: Autorisierte SSH-Schlüssel deklarativ setzen
+  ansible.posix.authorized_key:
+    user: "{{ item.name }}"
+    key: "{{ item.authorized_keys | join('\n') }}"
+    state: present
+    manage_dir: false
+    exclusive: "{{ item.authorized_keys_exclusive | default(true) }}"
+  loop: "{{ user_management_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.authorized_keys | default([]) | length > 0
+
+- name: Sudoers-Verzeichnis absichern
+  ansible.builtin.file:
+    path: "{{ user_management_sudoers_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Benutzerbezogene Sudo-Regeln verwalten
+  ansible.builtin.copy:
+    dest: "{{ user_management_sudoers_dir }}/90-{{ item.name }}"
+    owner: root
+    group: root
+    mode: '0440'
+    content: >-
+      {{ item.name }} ALL=(ALL) {{ 'NOPASSWD:' if item.sudo_nopasswd | default(false) else '' }}{{ item.sudo_commands | default(['ALL']) | join(', ') }}
+    validate: "{{ user_management_validate_sudoers }}"
+  loop: "{{ user_management_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.sudo | default(false) | bool
+
+- name: Nicht mehr benötigte Sudo-Regeln entfernen
+  ansible.builtin.file:
+    path: "{{ user_management_sudoers_dir }}/90-{{ item }}"
+    state: absent
+  loop: "{{ user_management_absent_users }}"
+
+- name: Entfernte Benutzerzugänge kontrolliert entziehen
+  ansible.builtin.user:
+    name: "{{ item }}"
+    state: absent
+    remove: "{{ user_management_remove_home_for_absent_users }}"
+    force: false
+  loop: "{{ user_management_absent_users }}"

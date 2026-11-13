@@ -1,0 +1,90 @@
+groups:
+  - name: node-exporter-host
+    rules:
+      - alert: NodeExporterDown
+        expr: up{job="node-exporter"} == 0
+        for: 2m
+        labels:
+          severity: high
+          owner: platform
+        annotations:
+          summary: Node Exporter is unreachable
+          description: Prometheus cannot scrape Node Exporter for at least two minutes.
+          runbook: docs/63-node-exporter.md
+
+      - alert: HostHighCPUUtilization
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{job="node-exporter",mode="idle"}[5m])) * 100) > 90
+        for: 15m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Host CPU utilization is high
+          description: Average host CPU utilization has exceeded 90 percent for fifteen minutes.
+          runbook: docs/63-node-exporter.md
+
+      - alert: HostMemoryPressure
+        expr: (1 - (node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"})) * 100 > 90
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Host memory pressure is high
+          description: Host memory utilization has exceeded 90 percent for ten minutes.
+          runbook: docs/63-node-exporter.md
+
+      - alert: HostFilesystemSpaceLow
+        expr: (node_filesystem_avail_bytes{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"}) * 100 < 25 and (node_filesystem_avail_bytes{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"}) * 100 >= 15
+        for: 15m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Host filesystem space is low
+          description: A monitored filesystem has less than 25 percent but at least 15 percent available space for fifteen minutes.
+          runbook: docs/63-node-exporter.md
+
+      - alert: HostFilesystemSpaceCritical
+        expr: (node_filesystem_avail_bytes{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: high
+          owner: platform
+        annotations:
+          summary: Host filesystem is critically full
+          description: A monitored filesystem has less than 15 percent available space for five minutes.
+          runbook: docs/79-monitoring-retention-capacity.md
+
+      - alert: HostFilesystemInodesLow
+        expr: (node_filesystem_files_free{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} / node_filesystem_files{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"}) * 100 < 10 and node_filesystem_files{job="node-exporter",fstype!~"tmpfs|devtmpfs|overlay|squashfs"} > 0
+        for: 15m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Host filesystem inodes are low
+          description: A monitored filesystem has less than 10 percent free inodes for fifteen minutes.
+          runbook: docs/63-node-exporter.md
+
+      - alert: HostNetworkErrors
+        expr: sum by (instance) (rate(node_network_receive_errs_total{job="node-exporter",device!="lo"}[5m]) + rate(node_network_transmit_errs_total{job="node-exporter",device!="lo"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Host network errors detected
+          description: Receive or transmit errors have been observed on a non-loopback interface for ten minutes.
+          runbook: docs/63-node-exporter.md
+
+      - alert: HostClockSkew
+        expr: abs(time() - node_time_seconds{job="node-exporter"}) > 60
+        for: 5m
+        labels:
+          severity: high
+          owner: platform
+        annotations:
+          summary: Host clock skew is too large
+          description: Host clock differs from Prometheus by more than 60 seconds for five minutes.
+          runbook: docs/63-node-exporter.md

@@ -1,0 +1,11 @@
+groups:
+  - name: alertmanager-delivery-test
+    rules:
+      - alert: AlertmanagerDeliveryProbe
+        expr: vector(1)
+        for: 0m
+        labels:
+          severity: info
+          service: prometheus
+        annotations:
+          summary: Integration probe for Prometheus to Alertmanager delivery

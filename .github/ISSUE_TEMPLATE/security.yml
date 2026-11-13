@@ -1,0 +1,64 @@
+name: Security-Aufgabe erfassen
+description: Geplante Härtung, Sicherheitsprüfung oder nicht vertrauliche Security-Maßnahme dokumentieren.
+title: "Security: "
+labels:
+  - security
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Dieses Template ist nur für nicht vertrauliche Security-Aufgaben bestimmt. Konkrete Schwachstellen, Exploit-Details, Zugangsdaten oder Secrets ausschließlich über die private Security-Advisory-Funktion melden.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Sicherheitsziel
+      description: Welches Schutzziel oder welche Härtungsmaßnahme soll erreicht werden?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Geltungsbereich
+      description: Welche Systeme, Komponenten oder Umgebungen sind betroffen?
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risiko und Bedrohungsmodell
+      description: Nur allgemein und ohne ausnutzbare vertrauliche Details beschreiben.
+    validations:
+      required: true
+  - type: textarea
+    id: controls
+    attributes:
+      label: Vorgesehene Kontrollen
+      description: Welche technischen oder organisatorischen Maßnahmen sind vorgesehen?
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validierung
+      description: Wie wird die Wirksamkeit sicher geprüft und dokumentiert?
+    validations:
+      required: true
+  - type: textarea
+    id: definition-of-done
+    attributes:
+      label: Definition of Done
+      description: Formuliere überprüfbare Abschlusskriterien.
+      placeholder: |
+        - [ ] Maßnahme umgesetzt
+        - [ ] Sicherheitsprüfung erfolgreich
+        - [ ] Betriebs- und Rollback-Auswirkungen geprüft
+        - [ ] Dokumentation aktualisiert
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Vertraulichkeitsprüfung
+      options:
+        - label: Das Issue enthält keine Schwachstellendetails, Exploit-Anweisungen, Secrets oder Zugangsdaten.
+          required: true

@@ -1,0 +1,14 @@
+service:
+  name: example-service
+  environment: development
+  public_url: https://example.invalid
+  listen_address: 127.0.0.1
+  listen_port: 8080
+
+runtime:
+  log_level: INFO
+  data_path: /var/lib/example-service
+
+secrets:
+  api_token_file: /run/secrets/api-token
+  database_password_file: /run/secrets/database-password

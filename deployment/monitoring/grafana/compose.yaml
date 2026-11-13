@@ -1,0 +1,64 @@
+services:
+  grafana:
+    image: ${GRAFANA_IMAGE_REFERENCE:-docker.io/grafana/grafana@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0}
+    restart: unless-stopped
+    labels:
+      com.merchfactory.managed: "true"
+      com.merchfactory.cleanup.protect: "false"
+    init: true
+    user: "472:472"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    cpus: ${GRAFANA_CPU_LIMIT:-0.5}
+    cpu_shares: ${GRAFANA_CPU_SHARES:-512}
+    mem_limit: ${GRAFANA_MEMORY_LIMIT:-512m}
+    mem_reservation: ${GRAFANA_MEMORY_RESERVATION:-256m}
+    pids_limit: ${GRAFANA_PIDS_LIMIT:-256}
+    environment:
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_AUTO_ASSIGN_ORG: "true"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+      GF_SERVER_HTTP_ADDR: 0.0.0.0
+      GF_SERVER_HTTP_PORT: "3000"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        read -r GF_SECURITY_ADMIN_PASSWORD < /run/secrets/grafana_admin_password
+        export GF_SECURITY_ADMIN_PASSWORD
+        exec /run.sh
+    volumes:
+      - type: bind
+        source: ${GRAFANA_DATA_DIR:-/srv/merchfactory/persistent/monitoring/grafana}
+        target: /var/lib/grafana
+      - type: bind
+        source: ../../../monitoring/grafana/provisioning
+        target: /etc/grafana/provisioning
+        read_only: true
+      - type: bind
+        source: ../../../monitoring/grafana/dashboards
+        target: /var/lib/grafana/dashboards
+        read_only: true
+    secrets: [grafana_admin_password]
+    tmpfs: [/tmp]
+    healthcheck:
+      test: [CMD-SHELL, "wget -S --spider http://127.0.0.1:3000/login 2>&1 | grep -Eq 'HTTP/[0-9.]+ (200|401)'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+    networks:
+      monitoring:
+        ipv4_address: ${GRAFANA_MONITORING_IP:-172.30.250.20}
+secrets:
+  grafana_admin_password:
+    file: ${GRAFANA_ADMIN_PASSWORD_FILE:-/srv/merchfactory/secrets/development/grafana-admin-password}
+networks:
+  monitoring:
+    external: true
+    name: ${MERCHFACTORY_MONITORING_NETWORK:-merchfactory-monitoring}

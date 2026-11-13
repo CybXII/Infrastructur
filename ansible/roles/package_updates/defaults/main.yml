@@ -1,0 +1,11 @@
+---
+package_updates_strategy: security
+package_updates_apply_on_bootstrap: true
+package_updates_automatic_enabled: true
+package_updates_maintenance_window: "Sun *-*-* 03:30:00"
+package_updates_randomized_delay_sec: 900
+package_updates_reboot_if_required: false
+package_updates_reboot_timeout: 900
+package_updates_dnf_automatic_config: /etc/dnf/automatic.conf
+package_updates_timer_name: dnf-automatic.timer
+package_updates_timer_override_dir: /etc/systemd/system/dnf-automatic.timer.d

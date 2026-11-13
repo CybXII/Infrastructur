@@ -1,0 +1,49 @@
+services:
+  loki:
+    image: ${LOKI_IMAGE_REFERENCE:-docker.io/grafana/loki@sha256:d70e4659623f3e109af669cae76fe2a5dd5be54e2298fe8aed380d982fbc2500}
+    restart: unless-stopped
+    labels:
+      com.merchfactory.managed: "true"
+      com.merchfactory.cleanup.protect: "false"
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: ${LOKI_CPU_LIMIT:-1.0}
+    cpu_shares: ${LOKI_CPU_SHARES:-1024}
+    mem_limit: ${LOKI_MEMORY_LIMIT:-1536m}
+    mem_reservation: ${LOKI_MEMORY_RESERVATION:-768m}
+    pids_limit: ${LOKI_PIDS_LIMIT:-256}
+    command:
+      - -config.file=/etc/loki/loki.yaml
+    volumes:
+      - type: bind
+        source: ../../../monitoring/loki/loki.yaml
+        target: /etc/loki/loki.yaml
+        read_only: true
+      - type: bind
+        source: ${LOKI_DATA_DIR:-/srv/merchfactory/persistent/monitoring/loki}
+        target: /loki
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD
+        - /usr/bin/loki
+        - -version
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    stop_grace_period: 30s
+    networks:
+      monitoring:
+        ipv4_address: ${LOKI_MONITORING_IP:-172.30.250.10}
+
+networks:
+  monitoring:
+    external: true
+    name: ${MERCHFACTORY_MONITORING_NETWORK:-merchfactory-monitoring}

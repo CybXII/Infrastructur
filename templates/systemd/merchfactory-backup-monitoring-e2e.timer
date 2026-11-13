@@ -1,0 +1,11 @@
+[Unit]
+Description=Run development backup alert checks weekly (opt-in)
+
+[Timer]
+OnCalendar=Sun *-*-* 02:00:00
+RandomizedDelaySec=45min
+Persistent=false
+Unit=merchfactory-backup-monitoring-e2e.service
+
+[Install]
+WantedBy=timers.target

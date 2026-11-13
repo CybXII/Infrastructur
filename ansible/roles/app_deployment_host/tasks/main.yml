@@ -1,0 +1,92 @@
+---
+- name: App-Deployment-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - app_deployment_user | length > 0
+      - app_deployment_group | length > 0
+      - app_deployment_root is match('^/')
+    fail_msg: Ungueltige App-Deployment-Konfiguration.
+
+- name: ACL-Werkzeuge installieren
+  ansible.builtin.dnf:
+    name: acl
+    state: present
+
+- name: Deployment-Gruppe sicherstellen
+  ansible.builtin.group:
+    name: "{{ app_deployment_group }}"
+    state: present
+
+- name: Docker-Gruppe als Voraussetzung lesen
+  ansible.builtin.getent:
+    database: group
+    key: "{{ app_deployment_docker_group }}"
+
+- name: Deployment-Benutzer sicherstellen
+  ansible.builtin.user:
+    name: "{{ app_deployment_user }}"
+    group: "{{ app_deployment_group }}"
+    groups:
+      - "{{ app_deployment_docker_group }}"
+    append: true
+    shell: "{{ app_deployment_shell }}"
+    home: "{{ app_deployment_home }}"
+    create_home: true
+    password_lock: true
+    state: present
+
+- name: Plattform-Wurzel fuer App-Deployments absichern
+  ansible.builtin.file:
+    path: "{{ app_deployment_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Deployment-Benutzer darf Plattform-Wurzel nur durchqueren
+  ansible.posix.acl:
+    path: "{{ app_deployment_root }}"
+    entity: "{{ app_deployment_user }}"
+    etype: user
+    permissions: x
+    state: present
+
+- name: App- und Backup-Wurzeln sicherstellen
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ app_deployment_apps_root }}"
+      mode: '0755'
+    - path: "{{ app_deployment_backups_root }}"
+      mode: '0755'
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Generischen App-Provisionierer installieren
+  ansible.builtin.copy:
+    src: merchfactory-provision-service.sh
+    dest: /usr/local/sbin/merchfactory-provision-service
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Deployment-Benutzer darf nur den geprüften Service-Provisionierer mit sudo aufrufen
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/merchfactory-provision-service
+    content: "{{ app_deployment_user }} ALL=(root) NOPASSWD: /usr/local/sbin/merchfactory-provision-service *\n"
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Deployment-Benutzer darf die zentrale Persistenz-Wurzel durchqueren
+  ansible.posix.acl:
+    path: /srv/merchfactory/persistent
+    entity: "{{ app_deployment_user }}"
+    etype: user
+    permissions: x
+    state: present

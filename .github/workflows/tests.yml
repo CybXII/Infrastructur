@@ -1,0 +1,38 @@
+name: Repository Tests
+
+on:
+  pull_request:
+    branches:
+      - development
+      - staging
+      - main
+  push:
+    branches:
+      - development
+      - staging
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: repository-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-tests:
+    uses: ./.github/workflows/reusable-static-validation.yml
+
+  deploy-development-monitoring:
+    name: Deploy development monitoring core
+    needs:
+      - static-tests
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/development' &&
+      needs.static-tests.result == 'success'
+    uses: ./.github/workflows/deploy-development-monitoring.yml
+    with:
+      source_sha: ${{ github.sha }}
+    secrets: inherit

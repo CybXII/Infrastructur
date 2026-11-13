@@ -1,0 +1,53 @@
+name: Feature vorschlagen
+description: Neue Funktion oder Erweiterung strukturiert beschreiben.
+title: "Feature: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Ziel
+      description: Welches konkrete Ergebnis soll erreicht werden?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Ausgangslage und Nutzen
+      description: Welches Problem wird gelöst und welcher Nutzen entsteht?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Umfang
+      description: Was gehört ausdrücklich dazu und was nicht?
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Abhängigkeiten und Risiken
+      description: Betroffene Systeme, Schnittstellen, Sicherheits- oder Betriebsrisiken.
+  - type: textarea
+    id: definition-of-done
+    attributes:
+      label: Definition of Done
+      description: Formuliere überprüfbare Abschlusskriterien.
+      placeholder: |
+        - [ ] Umsetzung abgeschlossen
+        - [ ] Tests erfolgreich
+        - [ ] Dokumentation aktualisiert
+        - [ ] Betrieb und Rollback berücksichtigt
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Vorprüfung
+      options:
+        - label: Ich habe bestehende Issues und Dokumentation auf Überschneidungen geprüft.
+          required: true
+        - label: Security-, Betriebs- und Breaking-Change-Auswirkungen wurden berücksichtigt.
+          required: true

@@ -1,0 +1,49 @@
+groups:
+  - name: cadvisor-container-recording
+    interval: 30s
+    rules:
+      - record: container:cpu_usage:rate5m
+        expr: |
+          sum by (instance, name, image, container_label_com_docker_compose_project, container_label_com_docker_compose_service) (
+            rate(container_cpu_usage_seconds_total{job="cadvisor",id!="/",name!=""}[5m])
+          )
+
+      - record: container:memory_working_set_bytes
+        expr: |
+          max by (instance, name, image, container_label_com_docker_compose_project, container_label_com_docker_compose_service) (
+            container_memory_working_set_bytes{job="cadvisor",id!="/",name!=""}
+          )
+
+      - record: container:network_receive_bytes:rate5m
+        expr: |
+          sum by (instance, name, image, container_label_com_docker_compose_project, container_label_com_docker_compose_service) (
+            rate(container_network_receive_bytes_total{job="cadvisor",id!="/",name!=""}[5m])
+          )
+
+      - record: container:network_transmit_bytes:rate5m
+        expr: |
+          sum by (instance, name, image, container_label_com_docker_compose_project, container_label_com_docker_compose_service) (
+            rate(container_network_transmit_bytes_total{job="cadvisor",id!="/",name!=""}[5m])
+          )
+
+      - record: container:start_time_seconds
+        expr: |
+          max by (instance, name, image, container_label_com_docker_compose_project, container_label_com_docker_compose_service) (
+            container_start_time_seconds{job="cadvisor",id!="/",name!=""}
+          )
+
+      - record: container:restarts:15m
+        expr: changes(container:start_time_seconds[15m])
+
+  - name: cadvisor-container-alerts
+    rules:
+      - alert: CAdvisorDown
+        expr: up{job="cadvisor"} == 0
+        for: 2m
+        labels:
+          severity: high
+          owner: platform
+        annotations:
+          summary: cAdvisor is unreachable
+          description: Prometheus cannot scrape cAdvisor for at least two minutes.
+          runbook: docs/64-cadvisor.md

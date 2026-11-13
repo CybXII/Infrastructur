@@ -1,0 +1,20 @@
+http:
+  routers:
+    {{SERVICE_NAME}}:
+      rule: "Host(`{{PUBLIC_HOSTNAME}}`)"
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+      service: {{SERVICE_NAME}}
+
+  services:
+    {{SERVICE_NAME}}:
+      loadBalancer:
+        healthCheck:
+          path: "{{READINESS_PATH}}"
+          interval: "10s"
+          timeout: "3s"
+          status: 200
+        servers:
+          - url: "http://{{SERVICE_NAME}}:{{CONTAINER_PORT}}"

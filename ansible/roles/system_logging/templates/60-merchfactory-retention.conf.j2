@@ -1,0 +1,13 @@
+[Journal]
+Storage={{ system_logging_storage }}
+Compress={{ system_logging_compress | bool | ternary('yes', 'no') }}
+SystemMaxUse={{ system_logging_system_max_use }}
+SystemKeepFree={{ system_logging_system_keep_free }}
+SystemMaxFileSize={{ system_logging_system_max_file_size }}
+RuntimeMaxUse={{ system_logging_runtime_max_use }}
+RuntimeKeepFree={{ system_logging_runtime_keep_free }}
+RuntimeMaxFileSize={{ system_logging_runtime_max_file_size }}
+MaxRetentionSec={{ system_logging_max_retention_sec }}
+MaxFileSec={{ system_logging_max_file_sec }}
+RateLimitIntervalSec={{ system_logging_rate_limit_interval_sec }}
+RateLimitBurst={{ system_logging_rate_limit_burst }}

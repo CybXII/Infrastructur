@@ -1,0 +1,227 @@
+---
+- name: Firewall-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - firewall_zone | length > 0
+      - firewall_default_target in ['default', 'ACCEPT', 'REJECT', 'DROP']
+      - firewall_server_roles is iterable
+      - firewall_allowed_services is iterable
+      - firewall_allowed_ports is iterable
+      - firewall_allowed_source_ports is iterable
+      - firewall_rich_rules is iterable
+      - firewall_manage_services_exclusively | type_debug == 'bool'
+      - firewall_manage_ports_exclusively | type_debug == 'bool'
+      - firewall_ssh_port | int > 0
+      - firewall_ssh_port | int < 65536
+    fail_msg: Ungültige Firewall-Konfiguration.
+
+- name: Unbekannte Serverrollen ermitteln
+  ansible.builtin.set_fact:
+    firewall_unknown_roles: >-
+      {{ firewall_server_roles | difference(firewall_role_profiles.keys() | list) }}
+
+- name: Bekannte Serverrollen erzwingen
+  ansible.builtin.assert:
+    that:
+      - firewall_unknown_roles | length == 0
+    fail_msg: >-
+      Unbekannte Firewall-Serverrollen: {{ firewall_unknown_roles | join(', ') }}.
+
+# set_fact persists across role invocations on the same host.
+- name: Rollenbasierte Portliste zuruecksetzen
+  ansible.builtin.set_fact:
+    firewall_role_ports: []
+
+- name: Rollenbasierte Ports zusammenstellen
+  ansible.builtin.set_fact:
+    firewall_role_ports: >-
+      {{ firewall_role_ports | default([]) + firewall_role_profiles[item] }}
+  loop: "{{ firewall_server_roles }}"
+
+- name: Effektive Portliste bilden
+  ansible.builtin.set_fact:
+    firewall_effective_ports: >-
+      {{
+        (
+          firewall_allowed_ports
+          + (firewall_role_ports | default([]))
+          + ([firewall_ssh_port | string ~ '/tcp'] if firewall_require_ssh_access | bool else [])
+        ) | unique | list
+      }}
+
+- name: SSH-Port in effektiver Firewall-Konfiguration bestätigen
+  ansible.builtin.assert:
+    that:
+      - not firewall_require_ssh_access | bool or (firewall_ssh_port | string ~ '/tcp') in firewall_effective_ports
+    fail_msg: >-
+      Der aktive SSH-Port ist nicht freigegeben. Firewall-Anwendung wird zum Schutz
+      vor Aussperrung abgebrochen.
+
+- name: firewalld installieren
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+
+- name: firewalld aktivieren und starten
+  ansible.builtin.systemd_service:
+    name: firewalld
+    enabled: true
+    state: started
+
+- name: Firewall-Zone sicherstellen
+  ansible.posix.firewalld:
+    zone: "{{ firewall_zone }}"
+    state: present
+    permanent: true
+  notify: Firewall neu laden
+
+- name: Netzwerkinterface der Zone zuweisen
+  ansible.posix.firewalld:
+    zone: "{{ firewall_zone }}"
+    interface: "{{ firewall_interface }}"
+    state: enabled
+    permanent: true
+    immediate: true
+  when: firewall_interface | length > 0
+
+- name: Erforderliche Dienste freigeben
+  ansible.posix.firewalld:
+    zone: "{{ firewall_zone }}"
+    service: "{{ item }}"
+    state: enabled
+    permanent: true
+    immediate: true
+  loop: "{{ firewall_allowed_services }}"
+
+- name: Erforderliche Ports vor Default-Deny freigeben
+  ansible.posix.firewalld:
+    zone: "{{ firewall_zone }}"
+    port: "{{ item }}"
+    state: enabled
+    permanent: true
+    immediate: true
+  loop: "{{ firewall_effective_ports }}"
+
+- name: Aktuell permanente Firewall-Dienste lesen
+  ansible.builtin.command:
+    cmd: >-
+      firewall-cmd --permanent
+      --zone={{ firewall_zone }} --list-services
+  register: firewall_current_services
+  changed_when: false
+  when: firewall_manage_services_exclusively | bool
+
+- name: Nicht deklarierte Firewall-Dienste ermitteln
+  ansible.builtin.set_fact:
+    firewall_stale_services: >-
+      {{
+        firewall_current_services.stdout.split()
+        | difference(firewall_allowed_services)
+        | list
+      }}
+  when: firewall_manage_services_exclusively | bool
+
+- name: Nicht deklarierte Firewall-Dienste entfernen
+  ansible.posix.firewalld:
+    zone: "{{ firewall_zone }}"
+    service: "{{ item }}"
+    state: disabled
+    permanent: true
+    immediate: true
+  loop: "{{ firewall_stale_services | default([]) }}"
+  when: firewall_manage_services_exclusively | bool
+
+- name: Aktuell permanente Firewall-Ports lesen
+  ansible.builtin.command:
+    cmd: >-
+      firewall-cmd --permanent
+      --zone={{ firewall_zone }} --list-ports
+  register: firewall_current_ports
+  changed_when: false
+  when: firewall_manage_ports_exclusively | bool
+
+- name: Nicht deklarierte Firewall-Ports ermitteln
+  ansible.builtin.set_fact:
+    firewall_stale_ports: >-
+      {{
+        firewall_current_ports.stdout.split()
+        | difference(firewall_effective_ports)
+        | list
+      }}
+  when: firewall_manage_ports_exclusively | bool
+
+- name: Nicht deklarierte Firewall-Ports entfernen
+  ansible.posix.firewalld:
+    zone: "{{ firewall_zone }}"
+    port: "{{ item }}"
+    state: disabled
+    permanent: true
+    immediate: true
+  loop: "{{ firewall_stale_ports | default([]) }}"
+  when: firewall_manage_ports_exclusively | bool
+
+- name: Quellgebundene Ports freigeben
+  ansible.posix.firewalld:
+    zone: "{{ firewall_zone }}"
+    rich_rule: >-
+      rule family="{{ item.family | default('ipv4') }}"
+      source address="{{ item.source }}"
+      port port="{{ item.port }}" protocol="{{ item.protocol | default('tcp') }}"
+      accept
+    state: enabled
+    permanent: true
+    immediate: true
+  loop: "{{ firewall_allowed_source_ports }}"
+  loop_control:
+    label: "{{ item.source }} -> {{ item.port }}/{{ item.protocol | default('tcp') }}"
+
+- name: Zusätzliche Rich Rules anwenden
+  ansible.posix.firewalld:
+    zone: "{{ firewall_zone }}"
+    rich_rule: "{{ item }}"
+    state: enabled
+    permanent: true
+    immediate: true
+  loop: "{{ firewall_rich_rules }}"
+
+- name: Masquerading aktivieren
+  ansible.posix.firewalld:
+    zone: "{{ firewall_zone }}"
+    masquerade: true
+    state: enabled
+    permanent: true
+    immediate: true
+  when: firewall_enable_masquerade | bool
+
+- name: Aktuelles permanentes Zonenziel lesen
+  ansible.builtin.command:
+    cmd: firewall-cmd --permanent --zone={{ firewall_zone }} --get-target
+  register: firewall_current_target
+  changed_when: false
+  when: firewall_manage_zone_target | bool
+
+- name: Restriktives Standardziel setzen
+  ansible.builtin.command:
+    cmd: >-
+      firewall-cmd --permanent --zone={{ firewall_zone }}
+      --set-target={{ firewall_default_target }}
+  when:
+    - firewall_manage_zone_target | bool
+    - firewall_current_target.stdout | trim != firewall_default_target
+  notify: Firewall neu laden
+
+- name: Firewall-Handler ausführen
+  ansible.builtin.meta: flush_handlers
+
+- name: Aktive Zone prüfen
+  ansible.builtin.command:
+    cmd: firewall-cmd --zone={{ firewall_zone }} --list-all
+  register: firewall_active_zone
+  changed_when: false
+
+- name: SSH-Freigabe nach Anwendung bestätigen
+  ansible.builtin.assert:
+    that:
+      - not firewall_require_ssh_access | bool or (firewall_ssh_port | string ~ '/tcp') in firewall_active_zone.stdout
+    fail_msg: >-
+      SSH-Port ist in der aktiven Firewall-Zone nicht sichtbar.

@@ -1,0 +1,21 @@
+# Managed by Ansible - do not edit manually
+[DEFAULT]
+backend = {{ fail2ban_backend }}
+banaction = {{ fail2ban_banaction }}
+ignoreip = {{ fail2ban_ignoreip | join(' ') }}
+logtarget = {{ fail2ban_logtarget }}
+loglevel = {{ fail2ban_loglevel }}
+
+[sshd]
+enabled = {{ 'true' if fail2ban_sshd_enabled else 'false' }}
+port = {{ fail2ban_sshd_port }}
+maxretry = {{ fail2ban_sshd_maxretry }}
+findtime = {{ fail2ban_sshd_findtime }}
+bantime = {{ fail2ban_sshd_bantime }}
+
+[recidive]
+enabled = {{ 'true' if fail2ban_recidive_enabled else 'false' }}
+logpath = /var/log/fail2ban.log
+maxretry = {{ fail2ban_recidive_maxretry }}
+findtime = {{ fail2ban_recidive_findtime }}
+bantime = {{ fail2ban_recidive_bantime }}

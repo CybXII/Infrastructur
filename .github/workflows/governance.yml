@@ -1,0 +1,134 @@
+name: Governance Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    branches:
+      - development
+      - staging
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: governance-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  conventions:
+    name: Branch and commit conventions
+    runs-on: ephemeral-linux
+    timeout-minutes: 5
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Branch- und Zielbranch prüfen
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+          PR_ACTOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -Eeuo pipefail
+
+          valid_work_branch='^(feature|fix|docs|chore|refactor|test|agent)/[a-z0-9]+([a-z0-9-]*[a-z0-9])?$'
+          valid_dependabot_branch='^dependabot/[a-z0-9._/-]+$'
+
+          case "$BASE_REF" in
+            development)
+              if [[ "$HEAD_REF" == "main" ]]; then
+                echo "Erlaubte Synchronisierung main -> development erkannt."
+              elif [[ "$PR_ACTOR" == "dependabot[bot]" && "$HEAD_REF" =~ $valid_dependabot_branch ]]; then
+                echo "Erlaubter Dependabot-Branch erkannt: $HEAD_REF"
+              elif [[ ! "$HEAD_REF" =~ $valid_work_branch ]]; then
+                echo "Ungültiger Arbeitsbranch: $HEAD_REF"
+                echo "Erlaubt sind feature/, fix/, docs/, chore/, refactor/, test/ oder agent/ mit kebab-case."
+                echo "Dependabot-Branches sind nur für Pull Requests des Accounts dependabot[bot] erlaubt."
+                exit 1
+              fi
+              ;;
+            staging)
+              if [[ "$HEAD_REF" != "development" ]]; then
+                echo "Pull Requests nach staging dürfen regulär nur aus development kommen."
+                exit 1
+              fi
+              ;;
+            main)
+              if [[ "$HEAD_REF" != "staging" ]]; then
+                echo "Pull Requests nach main dürfen regulär nur aus staging kommen."
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Nicht unterstützter Zielbranch: $BASE_REF"
+              exit 1
+              ;;
+          esac
+
+      - name: Pull-Request-Titel prüfen
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -Eeuo pipefail
+
+          pattern='^(feat|fix|docs|chore|refactor|test|ci|build|security|revert)(\([a-z0-9-]+\))?!?: .+'
+
+          if [[ ! "$PR_TITLE" =~ $pattern ]]; then
+            echo "Der Pull-Request-Titel folgt nicht der Conventional-Commit-Struktur."
+            echo "Beispiel: feat(governance): Prüfung ergänzen"
+            echo "Aktueller Titel: $PR_TITLE"
+            exit 1
+          fi
+
+      - name: Commit-Nachrichten prüfen
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ "$BASE_REF" == "staging" && "$HEAD_REF" == "development" ]]; then
+            echo "Promotion development -> staging: historische Commit-Nachrichten wurden bereits in den Arbeits-PRs geprüft."
+            exit 0
+          fi
+
+          if [[ "$BASE_REF" == "main" && "$HEAD_REF" == "staging" ]]; then
+            echo "Promotion staging -> main: historische Commit-Nachrichten wurden bereits in den vorgelagerten PRs geprüft."
+            exit 0
+          fi
+
+          if [[ "$BASE_REF" == "development" && "$HEAD_REF" == "main" ]]; then
+            echo "Synchronisierung main -> development: historische Commit-Nachrichten werden nicht erneut geprüft."
+            exit 0
+          fi
+
+          pattern='^(feat|fix|docs|chore|refactor|test|ci|build|security|revert)(\([a-z0-9-]+\))?!?: .+'
+          failed=0
+
+          while IFS= read -r subject; do
+            [[ -z "$subject" ]] && continue
+
+            if [[ "$subject" =~ ^Merge\  ]]; then
+              continue
+            fi
+
+            if [[ ! "$subject" =~ $pattern ]]; then
+              echo "Ungültige Commit-Nachricht: $subject"
+              failed=1
+            fi
+          done < <(git log --format='%s' "$BASE_SHA..$HEAD_SHA")
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "Commit-Nachrichten müssen dem Muster '<typ>(optional-scope): beschreibung' folgen."
+            exit 1
+          fi

@@ -1,0 +1,46 @@
+groups:
+  - name: backup-monitoring
+    rules:
+      - alert: BackupJobFailed
+        expr: merchfactory_backup_last_success == 0
+        for: 5m
+        labels:
+          severity: high
+          owner: platform
+        annotations:
+          summary: Backup job failed
+          description: The latest backup run for {{ $labels.service }} / {{ $labels.backup }} failed.
+          runbook: docs/70-backup-monitoring.md
+
+      - alert: BackupTooOld
+        expr: time() - merchfactory_backup_last_success_timestamp_seconds > merchfactory_backup_max_age_seconds
+        for: 15m
+        labels:
+          severity: high
+          owner: platform
+        annotations:
+          summary: Backup is stale
+          description: The latest successful backup for {{ $labels.service }} / {{ $labels.backup }} is older than its configured maximum age.
+          runbook: docs/70-backup-monitoring.md
+
+      - alert: RestoreTestFailed
+        expr: merchfactory_backup_restore_test_last_success == 0
+        for: 15m
+        labels:
+          severity: high
+          owner: platform
+        annotations:
+          summary: Backup restore test failed
+          description: The latest restore test for {{ $labels.service }} / {{ $labels.backup }} failed.
+          runbook: docs/70-backup-monitoring.md
+
+      - alert: RestoreTestTooOld
+        expr: time() - merchfactory_backup_restore_test_last_success_timestamp_seconds > merchfactory_backup_restore_test_max_age_seconds
+        for: 1h
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Backup restore test is stale
+          description: The latest successful restore test for {{ $labels.service }} / {{ $labels.backup }} is older than its configured maximum age.
+          runbook: docs/70-backup-monitoring.md

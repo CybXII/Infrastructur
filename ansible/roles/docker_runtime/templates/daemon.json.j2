@@ -1,0 +1,12 @@
+{
+  "data-root": "{{ docker_data_root }}",
+  "live-restore": {{ docker_live_restore | bool | lower }},
+  "userland-proxy": {{ docker_userland_proxy | bool | lower }},
+  "no-new-privileges": {{ docker_no_new_privileges | bool | lower }},
+  "log-driver": "{{ docker_log_driver }}",
+  "log-opts": {
+    "max-size": "{{ docker_log_max_size }}",
+    "max-file": "{{ docker_log_max_files }}",
+    "compress": "{{ docker_log_compress | bool | lower }}"
+  }
+}

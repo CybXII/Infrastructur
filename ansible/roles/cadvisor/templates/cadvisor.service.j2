@@ -1,0 +1,57 @@
+# Managed by Ansible - do not edit manually
+[Unit]
+Description=cAdvisor Container Metrics Agent
+Documentation=https://github.com/google/cadvisor
+Wants=network-online.target
+Requires=docker.service
+After=network-online.target docker.service
+ConditionPathExists={{ cadvisor_binary_path }}
+ConditionPathExists={{ cadvisor_docker_socket_path }}
+
+[Service]
+Type=simple
+User={{ cadvisor_system_user }}
+Group={{ cadvisor_system_group }}
+ExecStart={{ cadvisor_binary_path }} \
+  --listen_ip={{ cadvisor_listen_ip }} \
+  --port={{ cadvisor_listen_port }} \
+  --docker={{ cadvisor_docker_endpoint }} \
+  --docker_only={{ cadvisor_docker_only | ternary('true', 'false') }} \
+  --store_container_labels={{ cadvisor_store_container_labels | ternary('true', 'false') }} \
+  --whitelisted_container_labels={{ cadvisor_whitelisted_container_labels }} \
+  --housekeeping_interval={{ cadvisor_housekeeping_interval }} \
+  --max_housekeeping_interval={{ cadvisor_max_housekeeping_interval }} \
+  --global_housekeeping_interval={{ cadvisor_global_housekeeping_interval }} \
+  --storage_duration={{ cadvisor_storage_duration }} \
+{% if cadvisor_disable_metrics | length > 0 %}
+  --disable_metrics={{ cadvisor_disable_metrics }} \
+{% endif %}
+  --profiling=false \
+  --v=1
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_SYS_ADMIN
+AmbientCapabilities=
+IPAddressDeny=any
+IPAddressAllow={{ cadvisor_monitoring_subnet }}
+CPUQuota={{ cadvisor_cpu_quota }}
+MemoryMax={{ cadvisor_memory_max }}
+TasksMax={{ cadvisor_tasks_max }}
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

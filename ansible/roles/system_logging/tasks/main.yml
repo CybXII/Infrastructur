@@ -1,0 +1,72 @@
+---
+- name: System-Logging-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - system_logging_storage == 'persistent'
+      - system_logging_system_max_use | length > 0
+      - system_logging_system_keep_free | length > 0
+      - system_logging_system_max_file_size | length > 0
+      - system_logging_runtime_max_use | length > 0
+      - system_logging_runtime_keep_free | length > 0
+      - system_logging_runtime_max_file_size | length > 0
+      - system_logging_max_retention_sec | length > 0
+      - system_logging_max_file_sec | length > 0
+      - system_logging_rate_limit_burst | int > 0
+    fail_msg: Ungültige System-Logging-Konfiguration.
+
+- name: Persistentes Journal-Verzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ system_logging_persistent_dir }}"
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: '2755'
+
+- name: journald Drop-in-Verzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ system_logging_journald_dropin_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: journald Retention konfigurieren
+  ansible.builtin.template:
+    src: 60-merchfactory-retention.conf.j2
+    dest: "{{ system_logging_journald_config_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: systemd-journald neu starten
+
+- name: journald Handler vor Prüfung ausführen
+  ansible.builtin.meta: flush_handlers
+
+- name: journald Dienststatus prüfen
+  ansible.builtin.command:
+    cmd: systemctl is-active systemd-journald
+  register: system_logging_journald_status
+  changed_when: false
+
+- name: Effektive journald Konfiguration lesen
+  ansible.builtin.command:
+    cmd: systemd-analyze cat-config systemd/journald.conf
+  register: system_logging_effective_config
+  changed_when: false
+
+- name: journald Speicherstatus prüfen
+  ansible.builtin.command:
+    cmd: journalctl --disk-usage
+  register: system_logging_disk_usage
+  changed_when: false
+
+- name: System-Logging-Zustand bestätigen
+  ansible.builtin.assert:
+    that:
+      - system_logging_journald_status.stdout | trim == 'active'
+      - "'Storage=persistent' in system_logging_effective_config.stdout"
+      - "'SystemMaxUse=512M' in system_logging_effective_config.stdout"
+      - "'SystemKeepFree=1G' in system_logging_effective_config.stdout"
+      - "'MaxRetentionSec=30day' in system_logging_effective_config.stdout"
+      - system_logging_disk_usage.stdout | length > 0
+    fail_msg: journald Logging-/Retention-Konfiguration entspricht nicht dem Sollzustand.

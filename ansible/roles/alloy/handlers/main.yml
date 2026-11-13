@@ -1,0 +1,10 @@
+---
+- name: systemd für Alloy neu laden
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Alloy neu starten
+  ansible.builtin.systemd_service:
+    name: "{{ alloy_service_name }}"
+    state: restarted
+  when: alloy_enabled | bool

@@ -1,0 +1,21 @@
+# Managed by Ansible - do not edit manually
+Port {{ ssh_hardening_port }}
+PermitRootLogin {{ ssh_hardening_permit_root_login }}
+PasswordAuthentication {{ 'yes' if ssh_hardening_password_authentication else 'no' }}
+KbdInteractiveAuthentication {{ 'yes' if ssh_hardening_kbd_interactive_authentication else 'no' }}
+PubkeyAuthentication {{ 'yes' if ssh_hardening_pubkey_authentication else 'no' }}
+PermitEmptyPasswords {{ 'yes' if ssh_hardening_empty_passwords else 'no' }}
+X11Forwarding {{ 'yes' if ssh_hardening_x11_forwarding else 'no' }}
+AllowTcpForwarding {{ 'yes' if ssh_hardening_allow_tcp_forwarding else 'no' }}
+AllowAgentForwarding {{ 'yes' if ssh_hardening_allow_agent_forwarding else 'no' }}
+MaxAuthTries {{ ssh_hardening_max_auth_tries }}
+LoginGraceTime {{ ssh_hardening_login_grace_time }}
+ClientAliveInterval {{ ssh_hardening_client_alive_interval }}
+ClientAliveCountMax {{ ssh_hardening_client_alive_count_max }}
+UseDNS {{ 'yes' if ssh_hardening_use_dns else 'no' }}
+{% if ssh_hardening_allow_users | length > 0 %}
+AllowUsers {{ ssh_hardening_allow_users | join(' ') }}
+{% endif %}
+{% if ssh_hardening_allow_groups | length > 0 %}
+AllowGroups {{ ssh_hardening_allow_groups | join(' ') }}
+{% endif %}

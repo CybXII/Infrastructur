@@ -1,0 +1,12 @@
+# Managed by Ansible - do not edit manually
+[Unit]
+Description=Weekly Merchfactory Docker retention cleanup
+
+[Timer]
+OnCalendar={{ docker_cleanup_on_calendar }}
+RandomizedDelaySec={{ docker_cleanup_randomized_delay_sec }}
+Persistent={{ docker_cleanup_timer_persistent | bool | ternary('true', 'false') }}
+Unit={{ docker_cleanup_service_name }}
+
+[Install]
+WantedBy=timers.target

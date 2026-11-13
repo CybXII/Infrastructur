@@ -1,0 +1,123 @@
+---
+- name: Docker-Runtime-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution in ['AlmaLinux', 'Rocky']
+      - ansible_distribution_major_version == '9'
+      - ansible_architecture == 'x86_64'
+      - docker_repository_baseurl | length > 0
+      - docker_repository_gpgkey | length > 0
+      - docker_package_versions is iterable
+      - docker_package_versions | length == 5
+      - docker_package_update_policy == 'pinned'
+      - docker_data_root is match('^/')
+      - docker_log_max_files | int > 0
+      - docker_log_driver == 'local'
+      - docker_log_max_size | length > 0
+      - docker_log_compress | type_debug == 'bool'
+    fail_msg: Ungültige oder nicht unterstützte Docker-Runtime-Konfiguration.
+
+- name: Konfligierende Docker-Pakete entfernen
+  ansible.builtin.dnf:
+    name: "{{ docker_conflicting_packages }}"
+    state: absent
+
+- name: Offizielles Docker-CE-Repository konfigurieren
+  ansible.builtin.yum_repository:
+    name: "{{ docker_repository_name }}"
+    description: "{{ docker_repository_description }}"
+    baseurl: "{{ docker_repository_baseurl }}"
+    enabled: true
+    gpgcheck: true
+    gpgkey: "{{ docker_repository_gpgkey }}"
+    repo_gpgcheck: false
+
+- name: DNF-Metadaten für Docker aktualisieren
+  ansible.builtin.dnf:
+    update_cache: true
+
+- name: Gepinnte Docker-Pakete installieren
+  ansible.builtin.dnf:
+    name: "{{ docker_package_versions }}"
+    state: present
+    allow_downgrade: true
+
+- name: Docker-Konfigurationsverzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ docker_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Docker-Datenverzeichnis vorbereiten
+  ansible.builtin.file:
+    path: "{{ docker_data_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0710'
+
+- name: Docker-Daemon-Konfiguration schreiben
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: "{{ docker_daemon_config_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Docker neu starten
+
+- name: Docker-Daemon-Konfiguration syntaktisch prüfen
+  ansible.builtin.command:
+    cmd: python3 -m json.tool {{ docker_daemon_config_path }}
+  changed_when: false
+
+- name: Docker-Dienst aktivieren und starten
+  ansible.builtin.systemd_service:
+    name: "{{ docker_service_name }}"
+    enabled: true
+    state: started
+
+- name: Docker-Handler vor Runtime-Prüfung ausführen
+  ansible.builtin.meta: flush_handlers
+
+- name: Docker-Dienststatus prüfen
+  ansible.builtin.command:
+    cmd: systemctl is-active {{ docker_service_name }}
+  register: docker_runtime_service_status
+  changed_when: false
+
+- name: Docker-Engine-Version prüfen
+  ansible.builtin.command:
+    cmd: docker --version
+  register: docker_runtime_engine_version
+  changed_when: false
+
+- name: Docker-Compose-Version prüfen
+  ansible.builtin.command:
+    cmd: docker compose version
+  register: docker_runtime_compose_version
+  changed_when: false
+
+- name: Docker-Buildx-Version prüfen
+  ansible.builtin.command:
+    cmd: docker buildx version
+  register: docker_runtime_buildx_version
+  changed_when: false
+
+- name: Docker-Daemon-Erreichbarkeit prüfen
+  ansible.builtin.command:
+    cmd: docker info
+  register: docker_runtime_info
+  changed_when: false
+
+- name: Docker-Runtime-Zustand bestätigen
+  ansible.builtin.assert:
+    that:
+      - docker_runtime_service_status.stdout | trim == 'active'
+      - "'29.7.2' in docker_runtime_engine_version.stdout"
+      - "'Docker Compose version v5.4.0' in docker_runtime_compose_version.stdout or 'Docker Compose version 5.4.0' in docker_runtime_compose_version.stdout"
+      - "'0.36.1' in docker_runtime_buildx_version.stdout"
+      - "'Server Version: 29.7.2' in docker_runtime_info.stdout"
+      - "'Logging Driver: local' in docker_runtime_info.stdout"
+    fail_msg: Docker Engine, Compose, Buildx oder Dienststatus entsprechen nicht dem definierten Sollzustand.

@@ -1,0 +1,119 @@
+---
+- name: Storage-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - storage_platform_root | length > 1
+      - storage_persistent_root | length > 1
+      - storage_secret_root | length > 1
+      - storage_temporary_root | length > 1
+      - storage_runtime_group | length > 0
+      - storage_directories is iterable
+      - storage_directories | length > 0
+      - storage_mounts is iterable
+    fail_msg: Ungültige Storage- oder Verzeichniskonfiguration.
+
+- name: Verzeichnisdefinitionen validieren
+  ansible.builtin.assert:
+    that:
+      - item.path is defined
+      - item.path | length > 1
+      - item.path is match('^/')
+      - item.owner is defined
+      - item.group is defined
+      - item.mode is defined
+      - item.class is defined
+      - item.class in ['platform', 'persistent', 'secret', 'temporary']
+    fail_msg: "Ungültige Verzeichnisdefinition: {{ item | to_json }}"
+  loop: "{{ storage_directories }}"
+  loop_control:
+    label: "{{ item.path | default('unbekannt') }}"
+
+- name: Mountdefinitionen validieren
+  ansible.builtin.assert:
+    that:
+      - item.path is defined
+      - item.path | length > 1
+      - item.path is match('^/')
+      - item.src is defined
+      - item.src | length > 0
+      - item.fstype is defined
+      - item.fstype | length > 0
+      - item.state | default('mounted') in ['mounted', 'present']
+    fail_msg: "Ungültige Mountdefinition: {{ item | to_json }}"
+  loop: "{{ storage_mounts }}"
+  loop_control:
+    label: "{{ item.path | default('unbekannt') }}"
+
+- name: Mountpoints vor dem Einhängen anlegen
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ storage_mounts }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Optionale Dateisysteme verwalten
+  ansible.posix.mount:
+    path: "{{ item.path }}"
+    src: "{{ item.src }}"
+    fstype: "{{ item.fstype }}"
+    opts: "{{ item.opts | default('defaults') }}"
+    state: "{{ item.state | default('mounted') }}"
+  loop: "{{ storage_mounts }}"
+  loop_control:
+    label: "{{ item.path }} <- {{ item.src }}"
+
+- name: Runtime-Zugriffsgruppe anlegen
+  ansible.builtin.group:
+    name: "{{ storage_runtime_group }}"
+    system: true
+    state: present
+
+- name: Plattformverzeichnisse anlegen
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop: "{{ storage_directories }}"
+  loop_control:
+    label: "{{ item.path }} ({{ item.class }})"
+
+- name: Plattformverzeichnisse prüfen
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  register: storage_directory_stats
+  loop: "{{ storage_directories }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Verzeichniszustand bestätigen
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isdir
+      - item.stat.pw_name == item.item.owner
+      - item.stat.gr_name == item.item.group
+      - item.stat.mode == item.item.mode
+    fail_msg: "Verzeichnis entspricht nicht dem Sollzustand: {{ item.item.path }}"
+  loop: "{{ storage_directory_stats.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: Persistente, Secret- und temporäre Pfade auf Trennung prüfen
+  ansible.builtin.assert:
+    that:
+      - storage_temporary_root != storage_persistent_root
+      - storage_secret_root != storage_persistent_root
+      - storage_secret_root != storage_temporary_root
+      - not storage_temporary_root.startswith(storage_persistent_root + '/')
+      - not storage_persistent_root.startswith(storage_temporary_root + '/')
+      - not storage_secret_root.startswith(storage_persistent_root + '/')
+      - not storage_persistent_root.startswith(storage_secret_root + '/')
+      - not storage_secret_root.startswith(storage_temporary_root + '/')
+      - not storage_temporary_root.startswith(storage_secret_root + '/')
+    fail_msg: Persistente, Secret- und temporäre Datenpfade dürfen sich nicht überlappen.

@@ -1,0 +1,47 @@
+---
+alloy_enabled: true
+
+alloy_version: "1.19.2"
+alloy_archive_name: "alloy-linux-amd64.zip"
+alloy_download_url: >-
+  https://github.com/grafana/alloy/releases/download/v{{ alloy_version }}/{{ alloy_archive_name }}
+alloy_archive_sha256: "3694ea4e1044b367e1c21ffe28117f209c5989fa5e604d000321809f871ab701"
+
+alloy_user: alloy
+alloy_group: alloy
+alloy_supplementary_groups:
+  - docker
+  - systemd-journal
+  - adm
+  - merchfactory-runtime
+
+alloy_binary_path: /usr/local/bin/alloy
+alloy_cache_dir: /var/lib/merchfactory/downloads
+alloy_archive_path: "{{ alloy_cache_dir }}/{{ alloy_archive_name }}"
+alloy_extract_root: /var/lib/merchfactory/alloy/releases
+alloy_extract_dir: "{{ alloy_extract_root }}/{{ alloy_version }}"
+alloy_extracted_binary: "{{ alloy_extract_dir }}/alloy-linux-amd64"
+
+alloy_config_source: "{{ playbook_dir }}/../../monitoring/alloy/config.alloy"
+alloy_config_dir: /etc/alloy
+alloy_config_path: "{{ alloy_config_dir }}/config.alloy"
+alloy_state_path: /var/lib/merchfactory/alloy
+
+alloy_service_name: alloy.service
+alloy_service_path: "/etc/systemd/system/{{ alloy_service_name }}"
+
+alloy_environment: development
+alloy_docker_socket_path: /var/run/docker.sock
+
+alloy_monitoring_subnet: 172.30.250.0/24
+alloy_monitoring_gateway: 172.30.250.1
+alloy_listen_port: 12345
+alloy_listen_address: "{{ alloy_monitoring_gateway }}:{{ alloy_listen_port }}"
+
+alloy_loki_ip: 172.30.250.10
+alloy_loki_port: 3100
+alloy_loki_endpoint: "http://{{ alloy_loki_ip }}:{{ alloy_loki_port }}/loki/api/v1/push"
+
+alloy_cpu_quota: 50%
+alloy_memory_max: 512M
+alloy_tasks_max: 256

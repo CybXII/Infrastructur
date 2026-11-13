@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "baseline": {
+    "cpus": 1,
+    "memory_limit": "512m",
+    "memory_reservation": "256m",
+    "pids_limit": 256,
+    "cpu_shares": 512
+  },
+  "priority_classes": {
+    "critical": {
+      "cpu_shares": 1024,
+      "description": "Ingress, zentrale Plattform- oder geschäftskritische Dienste"
+    },
+    "standard": {
+      "cpu_shares": 512,
+      "description": "Normale dauerhaft laufende Anwendungsdienste"
+    },
+    "background": {
+      "cpu_shares": 256,
+      "description": "Worker, Batch- und zeitunkritische Hintergrundlast"
+    }
+  },
+  "rules": {
+    "hard_cpu_limit_required": true,
+    "hard_memory_limit_required": true,
+    "memory_reservation_required": true,
+    "memory_reservation_must_be_lower_than_limit": true,
+    "pids_limit_required": true,
+    "oom_kill_disable_allowed": false,
+    "host_capacity_headroom_required": true,
+    "production_values_require_load_validation": true
+  },
+  "platform_services": {
+    "traefik": {
+      "priority_class": "critical",
+      "cpus": 1,
+      "memory_limit": "512m",
+      "memory_reservation": "256m",
+      "pids_limit": 128,
+      "cpu_shares": 1024
+    },
+    "prometheus": {
+      "priority_class": "critical",
+      "cpus": 1,
+      "memory_limit": "1536m",
+      "memory_reservation": "768m",
+      "pids_limit": 256,
+      "cpu_shares": 1024
+    },
+    "loki": {
+      "priority_class": "critical",
+      "cpus": 1,
+      "memory_limit": "1536m",
+      "memory_reservation": "768m",
+      "pids_limit": 256,
+      "cpu_shares": 1024
+    },
+    "grafana": {
+      "priority_class": "standard",
+      "cpus": 0.5,
+      "memory_limit": "512m",
+      "memory_reservation": "256m",
+      "pids_limit": 256,
+      "cpu_shares": 512
+    },
+    "alertmanager": {
+      "priority_class": "critical",
+      "cpus": 0.25,
+      "memory_limit": "256m",
+      "memory_reservation": "128m",
+      "pids_limit": 128,
+      "cpu_shares": 256
+    }
+  }
+}

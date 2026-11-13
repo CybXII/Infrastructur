@@ -1,0 +1,473 @@
+name: Reusable Static Validation
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Integration test scope
+    runs-on: ephemeral-linux
+    outputs:
+      shared: ${{ steps.scope.outputs.shared }}
+      monitoring: ${{ steps.scope.outputs.monitoring }}
+      traefik: ${{ steps.scope.outputs.traefik }}
+      service_template: ${{ steps.scope.outputs.service_template }}
+      resources: ${{ steps.scope.outputs.resources }}
+      logging: ${{ steps.scope.outputs.logging }}
+      rollback: ${{ steps.scope.outputs.rollback }}
+      reference_service: ${{ steps.scope.outputs.reference_service }}
+      cleanup: ${{ steps.scope.outputs.cleanup }}
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Geänderte Integrationsbereiche bestimmen
+        id: scope
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -Eeuo pipefail
+          base_sha="${PR_BASE_SHA:-${PUSH_BEFORE_SHA:-}}"
+          zero_sha="0000000000000000000000000000000000000000"
+          if [[ -z "$base_sha" || "$base_sha" == "$zero_sha" ]] || ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
+            echo "Kein belastbarer Vergleichs-Commit; vollständige Integrationssuite."
+            for key in shared monitoring traefik service_template resources logging rollback reference_service cleanup; do echo "$key=true" >> "$GITHUB_OUTPUT"; done
+            exit 0
+          fi
+          changed_files="$(git diff --name-only "$base_sha" "$GITHUB_SHA")"
+          printf '%s\n' "$changed_files"
+          matches() { grep -Eq "$1" <<<"$changed_files"; }
+          shared=false
+          if matches '^(\.github/workflows/reusable-static-validation\.yml|configuration/container-image-policy\.json|scripts/(validate-compose-standards|validate-image-policy)\.py)$'; then shared=true; fi
+          echo "shared=$shared" >> "$GITHUB_OUTPUT"
+          set_scope() {
+            local key="$1"; local pattern="$2"
+            if [[ "$shared" == "true" ]] || matches "$pattern"; then echo "$key=true" >> "$GITHUB_OUTPUT"; else echo "$key=false" >> "$GITHUB_OUTPUT"; fi
+          }
+          set_scope monitoring '^(deployment/monitoring/|monitoring/|scripts/(deploy-development-monitoring-core\.sh|verify-monitoring-service\.py)|tests/(integration|unit|static)/.*(prometheus|node-exporter|cadvisor|loki|alloy|grafana|alertmanager|monitoring|discord)|configuration/monitoring-stack\.json|platform/network/scripts/prepare-(monitoring|alerting-egress)-network\.sh)'
+          set_scope traefik '^(platform/traefik/|tests/.*traefik)'
+          set_scope service_template '^(examples/services/example-service/|tests/integration/test-service-template-deployment\.sh|scripts/render-service-template\.py|tests/unit/test_render_service_template\.py)'
+          set_scope resources '^(configuration/resource-policy\.json|tests/(integration|unit)/.*resource|scripts/.*resource)'
+          set_scope logging '^(configuration/logging-policy\.json|tests/(integration|unit)/.*log|scripts/.*log)'
+          set_scope rollback '^(deployment/service-release\.py|configuration/deployment-policy\.json|tests/(integration|unit)/.*(rollback|service_release|deployment_policy))'
+          set_scope reference_service '^(examples/services/reference-http-service/|tests/integration/test-reference-service-deployment\.sh)'
+          set_scope cleanup '^(tests/(integration|unit)/.*cleanup|scripts/.*cleanup|configuration/.*cleanup)'
+
+  static-validation:
+    name: Static repository tests
+    runs-on: ephemeral-linux
+    timeout-minutes: 7
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Repositorystruktur prüfen
+        shell: bash
+        run: bash tests/static/test-repository-structure.sh
+
+      - name: Selektive Integrationssuite prüfen
+        shell: bash
+        run: bash tests/static/test-change-aware-integration-tests.sh
+
+      - name: GitHub-Actions-Kontexte prüfen
+        shell: bash
+        run: bash tests/static/test-github-actions-contexts.sh
+
+      - name: Runner- und Bootstrap-Guardrails prüfen
+        shell: bash
+        run: bash tests/static/test-runner-execution-guardrails.sh
+
+      - name: Service-Referenzstruktur prüfen
+        shell: bash
+        run: bash examples/services/example-service/tests/test-structure.sh
+
+      - name: Persistenzmodell der Service-Referenz prüfen
+        shell: bash
+        run: bash examples/services/example-service/tests/test-persistence.sh
+
+      - name: Secret-Management prüfen
+        shell: bash
+        run: bash tests/security/test-secret-management.sh
+
+      - name: Repository und Git-Historie auf Secrets prüfen
+        shell: bash
+        run: python3 scripts/check-secrets.py --tree --history
+
+      - name: Service-Template-Renderer prüfen
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_render_service_template.py'
+
+      - name: Bootstrap-Testinventar prüfen
+        shell: bash
+        run: |
+          python3 -m py_compile scripts/create-bootstrap-test-inventories.py
+          python3 -m unittest discover -s tests/unit -p 'test_create_bootstrap_test_inventories.py'
+
+      - name: Healthcheck-Policy prüfen
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_healthcheck_policy.py'
+
+      - name: Ressourcenpolicy prüfen
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_resource_policy.py'
+
+      - name: Logging-Policy prüfen
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_logging_policy.py'
+
+      - name: Deployment-Policy prüfen
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_deployment_policy.py'
+
+      - name: Deployment-Controller prüfen
+        shell: bash
+        run: |
+          python3 -m unittest discover -s tests/unit -p 'test_service_release.py'
+          python3 -m unittest discover -s tests/unit -p 'test_monitoring_verifier_status.py'
+          python3 -m unittest discover -s tests/unit -p 'test_monitoring_verifier_networks.py'
+          python3 -m py_compile scripts/verify-monitoring-service.py
+          bash -n scripts/deploy-development-monitoring-core.sh
+          shellcheck scripts/deploy-development-monitoring-core.sh
+
+      - name: Development-Alerting-Smoke auf Syntax prüfen
+        shell: bash
+        run: |
+          bash -n scripts/test-development-alert-routing.sh
+          shellcheck scripts/test-development-alert-routing.sh
+
+      - name: Docker-Cleanup-Policy prüfen
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_docker_cleanup_policy.py'
+
+      - name: Deployment-Topologien prüfen
+        shell: bash
+        run: |
+          python3 scripts/validate-deployment-topologies.py
+          python3 -m unittest discover -s tests/unit -p 'test_deployment_topologies.py'
+
+      - name: Monitoring-Stack-Policy prüfen
+        shell: bash
+        run: |
+          python3 scripts/validate-monitoring-stack.py
+          python3 -m unittest discover -s tests/unit -p 'test_monitoring_stack.py'
+
+      - name: Retention und Kapazitätsbudget prüfen
+        shell: bash
+        run: |
+          python3 scripts/validate-monitoring-retention.py
+          python3 -m unittest discover -s tests/unit -p 'test_monitoring_retention_capacity.py'
+
+      - name: Runbook-Alarmabdeckung prüfen
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_monitoring_runbook.py'
+
+      - name: Blackbox-Manifest und Security-Baseline prüfen
+        shell: bash
+        run: |
+          python3 -m py_compile scripts/compile-service-monitoring.py scripts/validate-public-probe-dns.py scripts/check-blackbox-egress-readiness.py
+          python3 -m unittest discover -s tests/unit -p 'test_service_monitoring_compiler.py'
+          python3 -m unittest discover -s tests/unit -p 'test_service_monitoring_runtime_paths.py'
+          python3 -m unittest discover -s tests/unit -p 'test_public_probe_dns.py'
+          python3 -m unittest discover -s tests/unit -p 'test_blackbox_runtime_contract.py'
+          python3 -m unittest discover -s tests/unit -p 'test_blackbox_egress_readiness.py'
+          python3 -m unittest discover -s tests/unit -p 'test_blackbox_smoke_contract.py'
+          bash -n scripts/smoke-blackbox-development.sh
+          bash -n platform/network/scripts/prepare-probe-egress-network.sh
+
+      - name: Grafana-Dashboard-Verträge prüfen
+        shell: bash
+        run: |
+          python3 -m unittest discover -s tests/unit -p 'test_grafana_dashboard.py'
+          python3 -m unittest discover -s tests/unit -p 'test_grafana_platform_dashboard.py'
+
+      - name: Backup-Monitoring-Vertrag prüfen
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_backup_monitoring.py'
+
+      - name: Discord-Notification-Vertrag prüfen
+        shell: bash
+        run: bash tests/static/test-discord-notification-contract.sh
+
+      - name: Monitoring Image-Security-Gate prüfen
+        shell: bash
+        run: bash tests/static/test-monitoring-image-security-gate.sh
+
+      - name: Node-Exporter-Policy prüfen
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_node_exporter_policy.py'
+
+      - name: cAdvisor-Policy prüfen
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_cadvisor_policy.py'
+
+      - name: Alloy-Policy prüfen
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_alloy_policy.py'
+
+      - name: v0.5 Plattformvalidierung prüfen
+        shell: bash
+        run: |
+          python3 scripts/validate-platform-validation.py
+          python3 -m unittest discover -s tests/unit -p 'test_platform_validation.py'
+
+      - name: Docker- und Compose-Standards prüfen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker compose version
+
+          secret_fixture_root="$(mktemp -d)"
+          trap 'rm -rf "$secret_fixture_root"' EXIT
+
+          printf '%s' 'MF_TEST_API_TOKEN' > "$secret_fixture_root/api-token"
+          printf '%s' 'MF_TEST_DATABASE_PASSWORD' > "$secret_fixture_root/database-password"
+          chmod 0600 "$secret_fixture_root/api-token" "$secret_fixture_root/database-password"
+
+          export EXAMPLE_SERVICE_API_TOKEN_FILE="$secret_fixture_root/api-token"
+          export EXAMPLE_DATABASE_PASSWORD_FILE="$secret_fixture_root/database-password"
+
+          python3 scripts/validate-compose-standards.py \
+            examples/services/example-service/deployment/compose.yaml.example
+          python3 scripts/validate-compose-standards.py \
+            platform/traefik/compose.yaml
+          python3 scripts/validate-compose-standards.py \
+            examples/services/reference-http-service/deployment/compose.yaml
+          python3 scripts/validate-compose-standards.py \
+            deployment/monitoring/prometheus/compose.yaml
+          python3 scripts/validate-compose-standards.py \
+            deployment/monitoring/loki/compose.yaml
+          python3 scripts/validate-compose-standards.py \
+            deployment/monitoring/grafana/compose.yaml
+          python3 scripts/validate-compose-standards.py \
+            deployment/monitoring/alertmanager/compose.yaml
+          python3 scripts/validate-compose-standards.py \
+            deployment/monitoring/blackbox/compose.yaml
+          python3 scripts/validate-compose-standards.py \
+            deployment/monitoring/blackbox/compose.staging.yaml
+
+          python3 -m unittest discover -s tests/unit -p 'test_validate_image_policy.py'
+
+          python3 scripts/validate-image-policy.py \
+            examples/services/example-service/deployment/compose.yaml.example
+
+          python3 scripts/validate-image-policy.py \
+            platform/traefik/compose.yaml \
+            platform/traefik/tests/compose.test.yaml
+
+          python3 scripts/validate-image-policy.py \
+            examples/services/reference-http-service/deployment/compose.yaml
+
+          python3 scripts/validate-image-policy.py \
+            deployment/monitoring/prometheus/compose.yaml
+          python3 scripts/validate-image-policy.py \
+            deployment/monitoring/loki/compose.yaml
+          python3 scripts/validate-image-policy.py \
+            deployment/monitoring/grafana/compose.yaml
+          python3 scripts/validate-image-policy.py \
+            deployment/monitoring/alertmanager/compose.yaml
+          python3 scripts/validate-image-policy.py \
+            deployment/monitoring/blackbox/compose.yaml
+          python3 scripts/validate-image-policy.py \
+            deployment/monitoring/blackbox/compose.staging.yaml
+
+  prometheus-integration:
+    needs: changes
+    if: needs.changes.outputs.shared == 'true' || needs.changes.outputs.monitoring == 'true'
+    name: Prometheus deployment
+    # Hostnahe Monitoring-Tests benötigen sudo und echte Host-Prozessrechte.
+    # Diese bleiben bewusst GitHub-hosted; normale Docker-Tests nutzen ephemeral-linux.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Docker Compose prüfen
+        shell: bash
+        run: docker compose version
+
+      - name: Prometheus persistent und intern bereitstellen
+        shell: bash
+        run: bash tests/integration/test-prometheus-deployment.sh
+
+      - name: Blackbox Development-Staging ohne externen Egress prüfen
+        shell: bash
+        run: bash tests/integration/test-blackbox-staging.sh
+
+      - name: Node Exporter, Isolation, Metriken und Alerts prüfen
+        shell: bash
+        run: bash tests/integration/test-node-exporter.sh
+
+      - name: cAdvisor, Container-Metriken und Isolation prüfen
+        shell: bash
+        run: bash tests/integration/test-cadvisor.sh
+
+      - name: Loki, Persistenz, Retention und Isolation prüfen
+        shell: bash
+        run: bash tests/integration/test-loki-deployment.sh
+
+      - name: Alloy, Docker-/Journal-Logs und Loki-Pipeline prüfen
+        shell: bash
+        run: bash tests/integration/test-alloy.sh
+      - name: Privates Grafana prüfen
+        shell: bash
+        run: bash tests/integration/test-grafana-deployment.sh
+
+      - name: Privaten Alertmanager prüfen
+        shell: bash
+        run: bash tests/integration/test-alertmanager-deployment.sh
+
+      - name: Prometheus-Alertzustellung prüfen
+        shell: bash
+        run: bash tests/integration/test-prometheus-alertmanager.sh
+
+  traefik-integration:
+    needs: changes
+    if: needs.changes.outputs.shared == 'true' || needs.changes.outputs.traefik == 'true'
+    name: Traefik routing integration
+    runs-on: ephemeral-linux
+    timeout-minutes: 10
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Docker Compose prüfen
+        shell: bash
+        run: docker compose version
+
+      - name: Routing, Middleware und Dashboard prüfen
+        shell: bash
+        run: bash platform/traefik/tests/test-routing.sh
+
+  service-template-integration:
+    needs: changes
+    if: needs.changes.outputs.shared == 'true' || needs.changes.outputs.service_template == 'true'
+    name: Service template deployment
+    runs-on: ephemeral-linux
+    timeout-minutes: 10
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Docker Compose prüfen
+        shell: bash
+        run: docker compose version
+
+      - name: Standard-Service-Template bereitstellen
+        shell: bash
+        run: bash tests/integration/test-service-template-deployment.sh
+
+  resource-limits-integration:
+    needs: changes
+    if: needs.changes.outputs.shared == 'true' || needs.changes.outputs.resources == 'true'
+    name: Resource limits and OOM behavior
+    runs-on: ephemeral-linux
+    timeout-minutes: 10
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Docker und Go prüfen
+        shell: bash
+        run: |
+          docker version
+          go version
+
+      - name: cgroup Limits, PID-Druck und OOM prüfen
+        shell: bash
+        run: bash tests/integration/test-resource-limits.sh
+
+  log-rotation-integration:
+    needs: changes
+    if: needs.changes.outputs.shared == 'true' || needs.changes.outputs.logging == 'true'
+    name: Docker log rotation
+    runs-on: ephemeral-linux
+    timeout-minutes: 10
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Docker und Go prüfen
+        shell: bash
+        run: |
+          docker version
+          go version
+
+      - name: Docker local Logrotation prüfen
+        shell: bash
+        run: bash tests/integration/test-log-rotation.sh
+
+  update-rollback-integration:
+    needs: changes
+    if: needs.changes.outputs.shared == 'true' || needs.changes.outputs.rollback == 'true'
+    name: Update and rollback
+    runs-on: ephemeral-linux
+    timeout-minutes: 12
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Docker Compose prüfen
+        shell: bash
+        run: docker compose version
+
+      - name: Digest-Update und automatischen Rollback prüfen
+        shell: bash
+        run: bash tests/integration/test-update-rollback.sh
+
+  reference-service-integration:
+    needs: changes
+    if: needs.changes.outputs.shared == 'true' || needs.changes.outputs.reference_service == 'true'
+    name: Reference service deployment
+    runs-on: ephemeral-linux
+    timeout-minutes: 12
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Docker Compose und OpenSSL prüfen
+        shell: bash
+        run: |
+          docker compose version
+          openssl version
+
+      - name: Referenzservice über Traefik/TLS bereitstellen
+        shell: bash
+        run: bash tests/integration/test-reference-service-deployment.sh
+
+  docker-cleanup-integration:
+    needs: changes
+    if: needs.changes.outputs.shared == 'true' || needs.changes.outputs.cleanup == 'true'
+    name: Docker retention cleanup
+    runs-on: ephemeral-linux
+    timeout-minutes: 12
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Docker und Go prüfen
+        shell: bash
+        run: |
+          docker version
+          go version
+
+      - name: Dry-Run, Safety-Gate und Cleanup prüfen
+        shell: bash
+        run: bash tests/integration/test-docker-retention-cleanup.sh

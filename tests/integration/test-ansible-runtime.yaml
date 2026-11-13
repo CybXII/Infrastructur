@@ -1,0 +1,12 @@
+---
+- name: Validate Ansible runtime configuration
+  hosts: all
+  gather_facts: false
+  connection: local
+
+  tasks:
+    - name: Confirm the runtime callback can execute a task
+      ansible.builtin.assert:
+        that:
+          - true
+        success_msg: Ansible runtime configuration is valid

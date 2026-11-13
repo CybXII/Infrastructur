@@ -1,0 +1,102 @@
+name: Bootstrap Validation
+
+on:
+  pull_request:
+    branches:
+      - development
+    paths:
+      - '.github/workflows/bootstrap-*.yml'
+      - 'ansible/**'
+      - 'scripts/*bootstrap*'
+      - 'tests/integration/*bootstrap*'
+      - 'tests/unit/test_*bootstrap*'
+  push:
+    branches:
+      - development
+    paths:
+      - '.github/workflows/bootstrap-*.yml'
+      - 'ansible/**'
+      - 'scripts/*bootstrap*'
+      - 'tests/integration/*bootstrap*'
+      - 'tests/unit/test_*bootstrap*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validation:
+    name: Bootstrap static validation
+    runs-on: ephemeral-linux
+    timeout-minutes: 15
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Ansible installieren
+        run: |
+          set -Eeuo pipefail
+          python3 -m venv "$RUNNER_TEMP/ansible-venv"
+          echo "$RUNNER_TEMP/ansible-venv/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/ansible-venv/bin/python" -m pip install 'ansible-core>=2.17,<2.19'
+          "$RUNNER_TEMP/ansible-venv/bin/ansible-galaxy" collection install -r ansible/requirements.yml
+
+      - name: Shell-Skripte prüfen
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/test-bootstrap-idempotency.sh
+          bash -n scripts/test-bootstrap-fresh-host.sh
+          shellcheck scripts/test-bootstrap-idempotency.sh
+          shellcheck scripts/test-bootstrap-fresh-host.sh
+
+      - name: Python-Unit-Tests ausführen
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s tests/unit -p 'test_*.py'
+
+      - name: Syntaktische Testinventare erstellen
+        run: |
+          set -Eeuo pipefail
+          printf '%s\n' \
+            'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIValidationKey' \
+            > /tmp/bootstrap-validation.pub
+          python3 scripts/create-bootstrap-test-inventories.py \
+            --host bootstrap.example.invalid \
+            --initial-user root \
+            --managed-user bootstrap \
+            --public-key-file /tmp/bootstrap-validation.pub \
+            --initial-output /tmp/bootstrap-initial.json \
+            --managed-output /tmp/bootstrap-managed.json
+          ansible-inventory -i /tmp/bootstrap-initial.json --graph
+          ansible-inventory -i /tmp/bootstrap-managed.json --graph
+
+      - name: Ansible-Laufzeitkonfiguration prüfen
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/ansible/ansible.cfg
+        run: |
+          set -Eeuo pipefail
+          ansible-playbook \
+            -i localhost, \
+            tests/integration/test-ansible-runtime.yaml
+
+      - name: Ansible-Syntax prüfen
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/ansible/ansible.cfg
+        run: |
+          set -Eeuo pipefail
+          ansible-playbook \
+            -i /tmp/bootstrap-initial.json \
+            ansible/playbooks/bootstrap.yml \
+            --syntax-check
+          ansible-playbook \
+            -i /tmp/bootstrap-initial.json \
+            tests/integration/test-bootstrap-fresh-host-preflight.yaml \
+            --syntax-check
+          ansible-playbook \
+            -i /tmp/bootstrap-managed.json \
+            tests/integration/test-bootstrap-fresh-host-verify.yaml \
+            --syntax-check

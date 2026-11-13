@@ -1,0 +1,46 @@
+rule_files:
+  - /etc/prometheus/rules/cadvisor.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: cadvisor-down
+    interval: 1m
+    input_series:
+      - series: 'up{job="cadvisor",instance="host-01"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: CAdvisorDown
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              job: cadvisor
+              instance: host-01
+            exp_annotations:
+              summary: cAdvisor is unreachable
+              description: Prometheus cannot scrape cAdvisor for at least two minutes.
+              runbook: docs/64-cadvisor.md
+
+  - name: lean-container-metrics-without-filesystem
+    interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{job="cadvisor",instance="host-01",id="/docker/fixture",name="fixture",image="fixture"}'
+        values: '1024x5'
+      - series: 'container_start_time_seconds{job="cadvisor",instance="host-01",id="/docker/fixture",name="fixture",image="fixture"}'
+        values: '100x5'
+    promql_expr_test:
+      - expr: container:memory_working_set_bytes
+        eval_time: 3m
+        exp_samples:
+          - labels: 'container:memory_working_set_bytes{instance="host-01",name="fixture",image="fixture"}'
+            value: 1024
+      - expr: container:start_time_seconds
+        eval_time: 3m
+        exp_samples:
+          - labels: 'container:start_time_seconds{instance="host-01",name="fixture",image="fixture"}'
+            value: 100
+      - expr: container:filesystem_usage_bytes
+        eval_time: 3m
+        exp_samples: []

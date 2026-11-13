@@ -1,0 +1,59 @@
+services:
+  alertmanager:
+    image: ${ALERTMANAGER_IMAGE_REFERENCE:-quay.io/prometheus/alertmanager@sha256:690c7b525f4367aa91f73e2f91c632206d32e97c6384bdbf2fb7a861b420340d}
+    restart: unless-stopped
+    labels:
+      com.merchfactory.managed: "true"
+      com.merchfactory.cleanup.protect: "false"
+    init: true
+    user: "65534:65534"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: ${ALERTMANAGER_CPU_LIMIT:-0.25}
+    cpu_shares: ${ALERTMANAGER_CPU_SHARES:-256}
+    mem_limit: ${ALERTMANAGER_MEMORY_LIMIT:-256m}
+    mem_reservation: ${ALERTMANAGER_MEMORY_RESERVATION:-128m}
+    pids_limit: ${ALERTMANAGER_PIDS_LIMIT:-128}
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=0.0.0.0:9093
+    volumes:
+      - type: bind
+        source: ../../../monitoring/alertmanager/alertmanager.yml
+        target: /etc/alertmanager/alertmanager.yml
+        read_only: true
+      - type: bind
+        source: ${ALERTMANAGER_DATA_DIR:-/srv/merchfactory/persistent/monitoring/alertmanager}
+        target: /alertmanager
+      - type: bind
+        source: ${ALERTMANAGER_DISCORD_WEBHOOK_FILE:-/srv/merchfactory/secrets/alertmanager/discord-webhook-url}
+        target: /run/secrets/discord-webhook-url
+        read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null http://127.0.0.1:9093/-/ready
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    stop_grace_period: 30s
+    networks:
+      monitoring:
+        ipv4_address: ${ALERTMANAGER_MONITORING_IP:-172.30.250.30}
+      alerting_egress:
+        gw_priority: 1
+
+networks:
+  monitoring:
+    external: true
+    name: ${MERCHFACTORY_MONITORING_NETWORK:-merchfactory-monitoring}
+  alerting_egress:
+    external: true
+    name: ${MERCHFACTORY_ALERTING_EGRESS_NETWORK:-merchfactory-alerting-egress}

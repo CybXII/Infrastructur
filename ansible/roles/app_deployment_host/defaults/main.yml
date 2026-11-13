@@ -1,0 +1,10 @@
+---
+app_deployment_user: deploy
+app_deployment_group: deploy
+app_deployment_shell: /bin/bash
+app_deployment_home: "/home/{{ app_deployment_user }}"
+app_deployment_docker_group: docker
+
+app_deployment_root: /opt/merchfactory
+app_deployment_apps_root: "{{ app_deployment_root }}/apps"
+app_deployment_backups_root: "{{ app_deployment_root }}/backups"

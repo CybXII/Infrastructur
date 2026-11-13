@@ -1,0 +1,41 @@
+version: 1
+service: loki
+
+objects:
+  - id: tsdb-filesystem
+    class: B
+    storage:
+      type: bind
+      source: /srv/merchfactory/persistent/monitoring/loki
+      target: /loki
+    ownership:
+      uid: 10001
+      gid: 10001
+      directory_mode: '0750'
+    backup:
+      required: false
+      reason: operational-log-history-is-not-a-business-source-of-truth-in-v0.6
+    restore:
+      method: recreate-empty-store-and-resume-ingestion
+      target_rto: operational
+    review:
+      retention_capacity_issue: 96
+      backup_strategy_issue: 94
+
+  - id: configuration
+    class: C
+    storage:
+      type: git
+      paths:
+        - monitoring/loki/loki.yaml
+        - deployment/monitoring/loki/compose.yaml
+    backup:
+      required: false
+      reason: reproducible-from-git
+    restore:
+      method: redeploy-reviewed-repository-state
+
+notes:
+  - Loki speichert im v0.6-Basisscope ausschließlich betriebliche Logs.
+  - Der Verlust historischer Logs darf den Wiederanlauf der Plattform nicht blockieren.
+  - Eine spätere Backup-Entscheidung wird in Issue #94 bewertet.

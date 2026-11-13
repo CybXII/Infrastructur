@@ -1,0 +1,45 @@
+groups:
+  - name: alloy-agent-alerts
+    rules:
+      - alert: AlloyDown
+        expr: up{job="alloy"} == 0
+        for: 2m
+        labels:
+          severity: high
+          owner: platform
+        annotations:
+          summary: Grafana Alloy is unreachable
+          description: Prometheus cannot scrape the Alloy host agent for at least two minutes.
+          runbook: docs/67-alloy.md
+
+      - alert: AlloyLogDrops
+        expr: increase(loki_write_dropped_entries_total{job="alloy"}[5m]) > 0
+        labels:
+          severity: high
+          owner: platform
+        annotations:
+          summary: Grafana Alloy is dropping log entries
+          description: Alloy permanently dropped one or more log entries during the last five minutes.
+          runbook: docs/67-alloy.md
+
+      - alert: AlloyWriteRetries
+        expr: increase(loki_write_batch_retries_total{job="alloy"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Grafana Alloy is repeatedly retrying Loki writes
+          description: Alloy retried more than ten Loki batches in five minutes.
+          runbook: docs/67-alloy.md
+
+      - alert: AlloyMemoryNearLimit
+        expr: process_resident_memory_bytes{job="alloy"} > 471859200
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform
+        annotations:
+          summary: Grafana Alloy memory usage is near its systemd limit
+          description: Alloy resident memory is above 450 MiB while MemoryMax is 512 MiB.
+          runbook: docs/67-alloy.md

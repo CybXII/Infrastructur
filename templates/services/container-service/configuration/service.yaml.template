@@ -1,0 +1,13 @@
+service:
+  name: {{SERVICE_NAME}}
+  owner: {{OWNER}}
+  environment: development
+  public_url: https://{{PUBLIC_HOSTNAME}}
+  listen_port: {{CONTAINER_PORT}}
+
+runtime:
+  data_path: /var/lib/{{SERVICE_NAME}}
+  log_level: INFO
+
+secrets:
+  primary_secret_file: /run/secrets/primary-secret

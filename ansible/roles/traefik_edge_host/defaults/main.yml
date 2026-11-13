@@ -1,0 +1,13 @@
+---
+traefik_edge_install_dir: /opt/merchfactory/platform/traefik
+traefik_edge_dynamic_config_dir: "{{ traefik_edge_install_dir }}/config/dynamic"
+traefik_edge_network_name: merchfactory-edge
+traefik_edge_acme_dir: /srv/merchfactory/persistent/traefik/acme
+
+traefik_edge_http_bind: 0.0.0.0:80
+traefik_edge_https_bind: 0.0.0.0:443
+traefik_edge_admin_bind: 127.0.0.1:18081
+
+# Application deployment users that may publish their own Traefik file-provider
+# configuration. Keep empty on edge hosts without application CI/CD.
+traefik_edge_dynamic_config_writers: []

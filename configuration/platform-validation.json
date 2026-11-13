@@ -1,0 +1,241 @@
+{
+  "version": 1,
+  "release": "v0.5",
+  "epic": 67,
+  "validation_issue": 81,
+  "monitoring_release": {
+    "decision": "approved",
+    "scope": "Container platform is approved as a runtime foundation for the monitoring implementation.",
+    "does_not_mean": "The monitoring stack itself is deployed or production-approved."
+  },
+  "required_capabilities": {
+    "routing": {
+      "runtime_required": true,
+      "evidence": [
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "traefik-integration",
+          "test": "platform/traefik/tests/test-routing.sh"
+        },
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "reference-service-integration",
+          "test": "tests/integration/test-reference-service-deployment.sh"
+        }
+      ]
+    },
+    "tls": {
+      "runtime_required": true,
+      "evidence": [
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "traefik-integration",
+          "test": "platform/traefik/tests/test-routing.sh"
+        },
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "reference-service-integration",
+          "test": "tests/integration/test-reference-service-deployment.sh"
+        }
+      ]
+    },
+    "isolation": {
+      "runtime_required": true,
+      "evidence": [
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "traefik-integration",
+          "test": "platform/traefik/tests/test-routing.sh"
+        }
+      ]
+    },
+    "persistence": {
+      "runtime_required": true,
+      "evidence": [
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "reference-service-integration",
+          "test": "tests/integration/test-reference-service-deployment.sh"
+        },
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "static-validation",
+          "test": "examples/services/example-service/tests/test-persistence.sh"
+        }
+      ]
+    },
+    "rollback": {
+      "runtime_required": true,
+      "evidence": [
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "update-rollback-integration",
+          "test": "tests/integration/test-update-rollback.sh"
+        }
+      ]
+    },
+    "health": {
+      "runtime_required": true,
+      "evidence": [
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "traefik-integration",
+          "test": "platform/traefik/tests/test-routing.sh"
+        },
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "reference-service-integration",
+          "test": "tests/integration/test-reference-service-deployment.sh"
+        }
+      ]
+    },
+    "resources": {
+      "runtime_required": true,
+      "evidence": [
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "resource-limits-integration",
+          "test": "tests/integration/test-resource-limits.sh"
+        }
+      ]
+    },
+    "logging": {
+      "runtime_required": true,
+      "evidence": [
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "log-rotation-integration",
+          "test": "tests/integration/test-log-rotation.sh"
+        }
+      ]
+    },
+    "secrets": {
+      "runtime_required": false,
+      "evidence": [
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "static-validation",
+          "test": "tests/security/test-secret-management.sh"
+        }
+      ]
+    },
+    "image_security": {
+      "runtime_required": false,
+      "evidence": [
+        {
+          "workflow": ".github/workflows/image-security.yml",
+          "job_id": "policy",
+          "test": "scripts/validate-image-policy.py"
+        },
+        {
+          "workflow": ".github/workflows/image-security.yml",
+          "job_id": "scan-traefik",
+          "test": ".github/workflows/reusable-image-security.yml"
+        },
+        {
+          "workflow": ".github/workflows/image-security.yml",
+          "job_id": "scan-whoami",
+          "test": ".github/workflows/reusable-image-security.yml"
+        }
+      ]
+    },
+    "cleanup": {
+      "runtime_required": true,
+      "evidence": [
+        {
+          "workflow": ".github/workflows/reusable-static-validation.yml",
+          "job_id": "docker-cleanup-integration",
+          "test": "tests/integration/test-docker-retention-cleanup.sh"
+        }
+      ]
+    }
+  },
+  "failure_modes": [
+    {
+      "id": "backend-not-ready",
+      "expected_behavior": "Traefik removes the backend from routing and admits it again after recovery.",
+      "evidence": "platform/traefik/tests/test-routing.sh"
+    },
+    {
+      "id": "acme-renewal-error",
+      "expected_behavior": "The ACME error detector returns a failing signal.",
+      "evidence": "platform/traefik/tests/test-routing.sh"
+    },
+    {
+      "id": "network-isolation-drift",
+      "expected_behavior": "Unexpected Docker network membership or non-internal app/data networks fail validation.",
+      "evidence": "platform/traefik/tests/test-routing.sh"
+    },
+    {
+      "id": "container-memory-exhaustion",
+      "expected_behavior": "Memory pressure is contained by cgroups and ends with container-local OOMKilled=true while Docker remains reachable.",
+      "evidence": "tests/integration/test-resource-limits.sh"
+    },
+    {
+      "id": "container-pid-exhaustion",
+      "expected_behavior": "New processes are rejected at the PID cgroup limit instead of exhausting the host.",
+      "evidence": "tests/integration/test-resource-limits.sh"
+    },
+    {
+      "id": "log-flood",
+      "expected_behavior": "Old local container logs are rotated out while the newest logs remain available.",
+      "evidence": "tests/integration/test-log-rotation.sh"
+    },
+    {
+      "id": "failed-release",
+      "expected_behavior": "A failed digest update is rolled back to the last known good digest and the deployment remains failed.",
+      "evidence": "tests/integration/test-update-rollback.sh"
+    },
+    {
+      "id": "container-recreate",
+      "expected_behavior": "Persistent bind-mounted data survives replacement of the application container.",
+      "evidence": "tests/integration/test-reference-service-deployment.sh"
+    },
+    {
+      "id": "secret-path-traversal",
+      "expected_behavior": "Invalid secret names and unsafe target paths are rejected.",
+      "evidence": "tests/security/test-secret-management.sh"
+    },
+    {
+      "id": "cleanup-unstable-release-state",
+      "expected_behavior": "Apply is skipped while the latest deployment state is not verified stable.",
+      "evidence": "tests/integration/test-docker-retention-cleanup.sh"
+    },
+    {
+      "id": "cleanup-rollback-artifact-protection",
+      "expected_behavior": "Current and previous known-good release images remain available while eligible old artifacts are removed.",
+      "evidence": "tests/integration/test-docker-retention-cleanup.sh"
+    }
+  ],
+  "ci_limitations": [
+    "CI validates TLS with runtime-generated self-signed certificates and does not call a public ACME CA.",
+    "Live DNS and public Let's Encrypt issuance remain staging/deployment smoke tests.",
+    "The central monitoring product stack is outside the scope of v0.5 validation."
+  ],
+  "known_open_items": [],
+  "completed_items": [
+    {
+      "issue": 231,
+      "title": "Docker-Retention und Cleanup automatisieren",
+      "status": "completed",
+      "evidence": "tests/integration/test-docker-retention-cleanup.sh",
+      "reason": "Rollback-sicheres, dry-run-fähiges Cleanup für managed Container, Images und Build-Cache ist implementiert; Volumes bleiben ausgeschlossen."
+    },
+    {
+      "issue": 82,
+      "title": "v0.5 Review & Abschluss",
+      "status": "completed",
+      "evidence": "docs/60-v0.5-review.md",
+      "reason": "Plattformtests, Dokumentation, Rollback-Verfahren und Übergabe an v0.6 wurden abschließend geprüft."
+    }
+  ],
+  "release_closure": {
+    "decision": "approved",
+    "review_issue": 82,
+    "review_evidence": "docs/60-v0.5-review.md",
+    "epic": 67,
+    "open_blockers": 0,
+    "next_epic": 83,
+    "first_next_issue": 84
+  }
+}

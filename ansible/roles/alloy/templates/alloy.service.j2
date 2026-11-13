@@ -1,0 +1,57 @@
+# Managed by Ansible - do not edit manually
+[Unit]
+Description=Grafana Alloy Telemetry Agent
+Documentation=https://grafana.com/docs/alloy/
+Wants=network-online.target
+Requires=docker.service
+After=network-online.target docker.service
+ConditionPathExists={{ alloy_binary_path }}
+ConditionPathExists={{ alloy_docker_socket_path }}
+ConditionPathExists={{ alloy_config_path }}
+
+[Service]
+Type=simple
+User={{ alloy_user }}
+Group={{ alloy_group }}
+SupplementaryGroups={{ alloy_supplementary_groups | join(' ') }}
+WorkingDirectory={{ alloy_state_path }}
+Environment="MERCHFACTORY_ENVIRONMENT={{ alloy_environment }}"
+Environment="ALLOY_LOKI_ENDPOINT={{ alloy_loki_endpoint }}"
+ExecStart={{ alloy_binary_path }} run \
+  --server.http.listen-addr={{ alloy_listen_address }} \
+  --storage.path={{ alloy_state_path }} \
+  --disable-reporting \
+  {{ alloy_config_path }}
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths={{ alloy_state_path }}
+ReadOnlyPaths=-/var/log/journal -/run/log/journal
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectClock=yes
+LockPersonality=yes
+# Official Alloy builds require executable runtime mappings; keep this explicitly disabled.
+MemoryDenyWriteExecute=no
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+IPAddressDeny=any
+IPAddressAllow={{ alloy_monitoring_subnet }}
+CPUQuota={{ alloy_cpu_quota }}
+MemoryMax={{ alloy_memory_max }}
+TasksMax={{ alloy_tasks_max }}
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

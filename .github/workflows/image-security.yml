@@ -1,0 +1,255 @@
+name: Container Image Security
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/image-security.yml'
+      - '.github/workflows/reusable-image-security.yml'
+      - 'configuration/container-image-policy.json'
+      - 'scripts/validate-image-policy.py'
+      - 'tests/unit/test_validate_image_policy.py'
+      - 'platform/traefik/compose.yaml'
+      - 'platform/traefik/tests/compose.test.yaml'
+      - 'examples/services/**/deployment/**'
+      - 'deployment/monitoring/**'
+      - 'monitoring/prometheus/**'
+      - 'monitoring/loki/**'
+      - 'monitoring/grafana/**'
+      - 'monitoring/alertmanager/**'
+      - 'monitoring/blackbox/**'
+      - 'configuration/monitoring-stack.json'
+      - 'configuration/resource-policy.json'
+      - '.github/workflows/deploy-development-monitoring.yml'
+      - 'deployment/service-release.py'
+      - 'configuration/deployment-policy.json'
+      - 'scripts/deploy-development-monitoring-core.sh'
+      - 'scripts/verify-monitoring-service.py'
+      - 'platform/network/scripts/prepare-monitoring-network.sh'
+      - 'platform/storage/scripts/prepare-persistent-directory.sh'
+  push:
+    branches:
+      - development
+      - staging
+      - main
+    paths:
+      - '.github/workflows/image-security.yml'
+      - '.github/workflows/reusable-image-security.yml'
+      - 'configuration/container-image-policy.json'
+      - 'scripts/validate-image-policy.py'
+      - 'tests/unit/test_validate_image_policy.py'
+      - 'platform/traefik/compose.yaml'
+      - 'platform/traefik/tests/compose.test.yaml'
+      - 'examples/services/**/deployment/**'
+      - 'deployment/monitoring/**'
+      - 'monitoring/prometheus/**'
+      - 'monitoring/loki/**'
+      - 'monitoring/grafana/**'
+      - 'monitoring/alertmanager/**'
+      - 'monitoring/blackbox/**'
+      - 'configuration/monitoring-stack.json'
+      - 'configuration/resource-policy.json'
+      - '.github/workflows/deploy-development-monitoring.yml'
+      - 'deployment/service-release.py'
+      - 'configuration/deployment-policy.json'
+      - 'scripts/deploy-development-monitoring-core.sh'
+      - 'scripts/verify-monitoring-service.py'
+      - 'platform/network/scripts/prepare-monitoring-network.sh'
+      - 'platform/storage/scripts/prepare-persistent-directory.sh'
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+  packages: read
+  attestations: read
+
+jobs:
+  policy:
+    name: Registry and image policy
+    runs-on: ephemeral-linux
+    timeout-minutes: 7
+    outputs:
+      traefik_image: ${{ steps.images.outputs.traefik_image }}
+      whoami_image: ${{ steps.images.outputs.whoami_image }}
+      prometheus_image: ${{ steps.images.outputs.prometheus_image }}
+      loki_image: ${{ steps.images.outputs.loki_image }}
+      grafana_image: ${{ steps.images.outputs.grafana_image }}
+      alertmanager_image: ${{ steps.images.outputs.alertmanager_image }}
+      blackbox_image: ${{ steps.images.outputs.blackbox_image }}
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Image-Policy Unit Tests
+        shell: bash
+        run: python3 -m unittest discover -s tests/unit -p 'test_validate_image_policy.py'
+
+      - name: Image-Policy gegen Compose-Referenzen prüfen
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          secret_fixture_root="$(mktemp -d)"
+          trap 'rm -rf "$secret_fixture_root"' EXIT
+
+          printf '%s' 'MF_TEST_API_TOKEN' > "$secret_fixture_root/api-token"
+          printf '%s' 'MF_TEST_DATABASE_PASSWORD' > "$secret_fixture_root/database-password"
+          chmod 0600 "$secret_fixture_root/api-token" "$secret_fixture_root/database-password"
+
+          export EXAMPLE_SERVICE_API_TOKEN_FILE="$secret_fixture_root/api-token"
+          export EXAMPLE_DATABASE_PASSWORD_FILE="$secret_fixture_root/database-password"
+
+          python3 scripts/validate-image-policy.py \
+            examples/services/example-service/deployment/compose.yaml.example
+
+          python3 scripts/validate-image-policy.py \
+            platform/traefik/compose.yaml \
+            platform/traefik/tests/compose.test.yaml
+
+          python3 scripts/validate-image-policy.py \
+            deployment/monitoring/prometheus/compose.yaml
+
+          python3 scripts/validate-image-policy.py \
+            deployment/monitoring/loki/compose.yaml
+
+          python3 scripts/validate-image-policy.py \
+            deployment/monitoring/alertmanager/compose.yaml
+
+      - name: Zu scannende Plattformimages ermitteln
+        id: images
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          traefik_image="$(
+            docker compose \
+              -f platform/traefik/compose.yaml \
+              config --format json \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["traefik"]["image"])'
+          )"
+
+          whoami_image="$(
+            docker compose \
+              -f platform/traefik/compose.yaml \
+              -f platform/traefik/tests/compose.test.yaml \
+              config --format json \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["example-service"]["image"])'
+          )"
+
+          prometheus_image="$(
+            docker compose \
+              -f deployment/monitoring/prometheus/compose.yaml \
+              config --format json \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["prometheus"]["image"])'
+          )"
+
+          loki_image="$(
+            docker compose \
+              -f deployment/monitoring/loki/compose.yaml \
+              config --format json \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["loki"]["image"])'
+          )"
+
+          echo "traefik_image=$traefik_image" >> "$GITHUB_OUTPUT"
+          echo "whoami_image=$whoami_image" >> "$GITHUB_OUTPUT"
+          echo "prometheus_image=$prometheus_image" >> "$GITHUB_OUTPUT"
+          grafana_image="$(docker compose -f deployment/monitoring/grafana/compose.yaml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["grafana"]["image"])')"
+          alertmanager_image="$(docker compose -f deployment/monitoring/alertmanager/compose.yaml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["alertmanager"]["image"])')"
+          echo "loki_image=$loki_image" >> "$GITHUB_OUTPUT"
+          echo "grafana_image=$grafana_image" >> "$GITHUB_OUTPUT"
+          echo "alertmanager_image=$alertmanager_image" >> "$GITHUB_OUTPUT"
+          blackbox_image="$(docker compose -f deployment/monitoring/blackbox/compose.yaml config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["blackbox-exporter"]["image"])')"
+          echo "blackbox_image=$blackbox_image" >> "$GITHUB_OUTPUT"
+
+  scan-traefik:
+    name: Scan Traefik image
+    needs: policy
+    uses: ./.github/workflows/reusable-image-security.yml
+    with:
+      image_ref: ${{ needs.policy.outputs.traefik_image }}
+      verify_provenance: false
+
+  scan-whoami:
+    name: Scan Whoami test image
+    needs: policy
+    uses: ./.github/workflows/reusable-image-security.yml
+    with:
+      image_ref: ${{ needs.policy.outputs.whoami_image }}
+      verify_provenance: false
+
+  scan-prometheus:
+    name: Scan Prometheus and Loki images
+    needs: policy
+    uses: ./.github/workflows/reusable-image-security.yml
+    with:
+      image_ref: ${{ needs.policy.outputs.prometheus_image }}
+      additional_image_ref: ${{ needs.policy.outputs.loki_image }}
+      verify_provenance: false
+
+  scan-grafana:
+    name: Scan Grafana image
+    needs: policy
+    uses: ./.github/workflows/reusable-image-security.yml
+    with:
+      image_ref: ${{ needs.policy.outputs.grafana_image }}
+      verify_provenance: false
+
+
+  scan-alertmanager:
+    name: Scan Alertmanager image
+    needs: policy
+    uses: ./.github/workflows/reusable-image-security.yml
+    with:
+      image_ref: ${{ needs.policy.outputs.alertmanager_image }}
+      verify_provenance: false
+
+  scan-blackbox:
+    name: Scan Blackbox image
+    needs: policy
+    uses: ./.github/workflows/reusable-image-security.yml
+    with:
+      image_ref: ${{ needs.policy.outputs.blackbox_image }}
+      verify_provenance: false
+
+  # Candidate only: detect whether upstream published v0.29.0 and run the
+  # identical CRITICAL vulnerability gate before promoting its digest to
+  # the production image reference. This does not change a deployed image.
+  blackbox-candidate:
+    name: Verify Blackbox v0.29.0 candidate
+    runs-on: ephemeral-linux
+    timeout-minutes: 15
+    steps:
+      - name: Resolve immutable OCI digest for the candidate
+        id: digest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          tag="docker.io/prom/blackbox-exporter:v0.29.0"
+          docker buildx imagetools inspect "$tag"
+          digest="$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}')"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Cannot verify immutable OCI digest of $tag" >&2
+            exit 1
+          fi
+          image="docker.io/prom/blackbox-exporter@$digest"
+          echo "Candidate: $image"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.70.0
+          cache: true
+
+      - name: Report HIGH and CRITICAL vulnerabilities
+        shell: bash
+        env:
+          IMAGE_REF: ${{ steps.digest.outputs.image }}
+        run: trivy image --db-repository ghcr.io/aquasecurity/trivy-db:2 --scanners vuln --severity HIGH,CRITICAL --exit-code 0 "$IMAGE_REF"
+
+      - name: Block fixable CRITICAL vulnerabilities
+        shell: bash
+        env:
+          IMAGE_REF: ${{ steps.digest.outputs.image }}
+        run: trivy image --db-repository ghcr.io/aquasecurity/trivy-db:2 --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE_REF"

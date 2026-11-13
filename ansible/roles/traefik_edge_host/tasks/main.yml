@@ -1,0 +1,165 @@
+---
+- name: Traefik-Edge-Konfiguration validieren
+  ansible.builtin.assert:
+    that:
+      - traefik_edge_install_dir is match('^/')
+      - traefik_edge_dynamic_config_dir is match('^/')
+      - traefik_edge_network_name | length > 0
+      - traefik_edge_acme_dir is match('^/')
+      - traefik_edge_dynamic_config_writers is iterable
+    fail_msg: Ungueltige Traefik-Edge-Konfiguration.
+
+- name: ACL-Werkzeuge fuer Dynamic-Config-Zugriff installieren
+  ansible.builtin.dnf:
+    name: acl
+    state: present
+
+- name: Traefik-Plattformverzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ traefik_edge_install_dir | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Traefik-Zielverzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ traefik_edge_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Versionierte Traefik-Baseline installieren
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../platform/traefik/"
+    dest: "{{ traefik_edge_install_dir }}/"
+    owner: root
+    group: root
+    mode: preserve
+  register: traefik_edge_files
+
+- name: Dynamic-Config-Verzeichnis sicherstellen
+  ansible.builtin.file:
+    path: "{{ traefik_edge_dynamic_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    # POSIX ACLs represent the effective ACL mask through the group mode bits.
+    # With a named writer using rwx, 0775 keeps chmod and the ACL module from
+    # rewriting each other's mask on every idempotency run. group:: remains
+    # root:r-x; only explicitly named writers receive rwx.
+    mode: "{{ '0775' if (traefik_edge_dynamic_config_writers | length > 0) else '0755' }}"
+
+- name: Dynamic-Config-Writer auf Existenz pruefen
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ item }}"
+  loop: "{{ traefik_edge_dynamic_config_writers }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Dynamic-Config-Writer darf Plattformpfad durchqueren
+  ansible.posix.acl:
+    path: "{{ item.0 }}"
+    entity: "{{ item.1 }}"
+    etype: user
+    permissions: x
+    state: present
+  loop: "{{ [traefik_edge_install_dir | dirname, traefik_edge_install_dir] | product(traefik_edge_dynamic_config_writers) | list }}"
+  loop_control:
+    label: "{{ item.1 }} -> {{ item.0 }}"
+
+- name: Dynamic-Config-Writer darf Anwendungsrouten verwalten
+  ansible.posix.acl:
+    path: "{{ traefik_edge_dynamic_config_dir }}"
+    entity: "{{ item }}"
+    etype: user
+    permissions: rwx
+    state: present
+  loop: "{{ traefik_edge_dynamic_config_writers }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Edge-Netzwerk-Skript installieren
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../platform/network/scripts/prepare-edge-network.sh"
+    dest: "{{ traefik_edge_install_dir }}/prepare-edge-network.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  register: traefik_edge_network_script
+
+- name: Vorhandenes Edge-Netzwerk pruefen
+  ansible.builtin.command:
+    cmd: "docker network inspect {{ traefik_edge_network_name }}"
+  register: traefik_edge_network_before
+  changed_when: false
+  failed_when: false
+
+- name: Gemeinsames Edge-Netzwerk anlegen oder validieren
+  ansible.builtin.command:
+    cmd: "{{ traefik_edge_install_dir }}/prepare-edge-network.sh {{ traefik_edge_network_name }}"
+  register: traefik_edge_network_prepare
+  changed_when: traefik_edge_network_before.rc != 0
+
+- name: ACME-Speicher vor dem Start pruefen
+  ansible.builtin.stat:
+    path: "{{ traefik_edge_acme_dir }}/acme.json"
+  register: traefik_edge_acme_before
+
+- name: Geschuetzten ACME-Speicher vorbereiten
+  ansible.builtin.command:
+    cmd: "{{ traefik_edge_install_dir }}/scripts/prepare-acme-storage.sh {{ traefik_edge_acme_dir }}"
+  register: traefik_edge_acme_prepare
+  changed_when: >-
+    not traefik_edge_acme_before.stat.exists
+    or (traefik_edge_acme_before.stat.mode | default('') != '0600')
+
+- name: Traefik-Runtime-Konfiguration schreiben
+  ansible.builtin.template:
+    src: traefik.env.j2
+    dest: "{{ traefik_edge_install_dir }}/.env"
+    owner: root
+    group: root
+    mode: '0600'
+  register: traefik_edge_env
+
+- name: Traefik-Compose-Konfiguration validieren
+  ansible.builtin.command:
+    cmd: docker compose --env-file .env config --quiet
+    chdir: "{{ traefik_edge_install_dir }}"
+  changed_when: false
+
+- name: Laufenden Traefik-Service vor Aenderung pruefen
+  ansible.builtin.command:
+    cmd: docker compose --env-file .env ps --status running --services traefik
+    chdir: "{{ traefik_edge_install_dir }}"
+  register: traefik_edge_before
+  changed_when: false
+  failed_when: false
+
+- name: Traefik starten oder aktualisieren
+  ansible.builtin.command:
+    cmd: docker compose --env-file .env up -d --remove-orphans traefik
+    chdir: "{{ traefik_edge_install_dir }}"
+  register: traefik_edge_up
+  changed_when: >-
+    traefik_edge_files.changed
+    or traefik_edge_network_script.changed
+    or traefik_edge_network_prepare.changed
+    or traefik_edge_acme_prepare.changed
+    or traefik_edge_env.changed
+    or traefik_edge_before.rc != 0
+    or 'traefik' not in traefik_edge_before.stdout_lines
+
+- name: Traefik-Readiness ueber lokalen Admin-Endpunkt pruefen
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:18081/ping"
+    status_code: 200
+    return_content: false
+  register: traefik_edge_ping
+  retries: 12
+  delay: 2
+  until: traefik_edge_ping.status == 200
+  changed_when: false

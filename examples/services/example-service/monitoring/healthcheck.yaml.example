@@ -1,0 +1,35 @@
+version: 1
+service: example-service
+
+liveness:
+  transport: docker-healthcheck
+  command: example-service healthcheck
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 10s
+  scope: local-process-and-local-runtime-only
+  automatic_restart_on_unhealthy: false
+
+readiness:
+  transport: traefik-active-healthcheck
+  path: /ready
+  interval: 10s
+  timeout: 3s
+  expected_status: 200
+  scope: request-serving-capability-and-required-request-path-dependencies
+
+external_probe:
+  type: https
+  url: https://example.invalid/ready
+  interval: 30s
+  timeout: 5s
+  expected_status: 200
+  warning_after_failures: 2
+  critical_after_failures: 5
+  receiver: CHANGE_ME
+
+notes:
+  - Liveness prüft keine optionalen Remote-Abhängigkeiten.
+  - Readiness darf nur zwingende Abhängigkeiten des Request-Pfads prüfen.
+  - Docker unhealthy löst keinen automatischen Neustart aus.

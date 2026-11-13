@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "container_logs": {
+    "driver": "local",
+    "max_size": "20m",
+    "max_files": 5,
+    "compress": true,
+    "estimated_uncompressed_ceiling_per_container": "100m",
+    "service_override_policy": "default-deny"
+  },
+  "system_journal": {
+    "storage": "persistent",
+    "system_max_use": "512M",
+    "system_keep_free": "1G",
+    "system_max_file_size": "64M",
+    "runtime_max_use": "64M",
+    "runtime_keep_free": "128M",
+    "runtime_max_file_size": "16M",
+    "max_retention_sec": "30day",
+    "max_file_sec": "1day",
+    "compress": true
+  },
+  "central_retention": {
+    "debug_days": 7,
+    "standard_days": 30,
+    "error_days": 90,
+    "security_days": 365,
+    "audit_days": 365,
+    "deployment_backup_days": 365
+  },
+  "disk_alerting": {
+    "warning_percent": 75,
+    "critical_percent": 85
+  },
+  "rules": {
+    "applications_log_to_stdout_stderr": true,
+    "unbounded_local_logging_forbidden": true,
+    "secrets_in_logs_forbidden": true,
+    "customer_payload_logging_forbidden_by_default": true,
+    "central_logging_outage_must_not_block_application": true
+  }
+}

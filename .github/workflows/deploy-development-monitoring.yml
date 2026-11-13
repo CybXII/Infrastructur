@@ -1,0 +1,248 @@
+name: Reusable Development Monitoring Deploy
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Freigegebener Development-Commit
+        required: true
+        type: string
+      force_deploy:
+        description: Monitoring unabhängig vom Commit-Diff erneut deployen
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Freigegebener Development-Commit mit grünem Image-Security-Run
+        required: true
+        type: string
+      force_deploy:
+        description: Monitoring unabhängig vom Commit-Diff erneut deployen
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-development-monitoring
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy development monitoring core
+    if: vars.DEVELOPMENT_BOOTSTRAP_MANAGED_HOST_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Deployment-Scope und Image-Security-Gate prüfen
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          FORCE_DEPLOY: ${{ inputs.force_deploy }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Ungültiger Source-SHA: $SOURCE_SHA" >&2
+            exit 1
+          fi
+
+          if [[ "$FORCE_DEPLOY" == "true" ]]; then
+            echo "Manueller/erzwungener Monitoring-Redeploy für $SOURCE_SHA."
+          else
+            changed_files="$(
+              gh api "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA" \
+                --jq '.files[].filename'
+            )"
+
+            if ! grep -Eq \
+              '^(\.github/workflows/(deploy-development-monitoring|tests)\.yml|deployment/service-release\.py|deployment/monitoring/(prometheus|loki|grafana|alertmanager|blackbox)/|monitoring/(prometheus|loki|grafana|alertmanager|blackbox)/|scripts/(deploy-development-monitoring-core\.sh|verify-monitoring-service\.py)|configuration/(container-image-policy|deployment-policy|monitoring-stack|resource-policy)\.json|platform/(network/scripts/(prepare-monitoring-network|prepare-alerting-egress-network)\.sh|secrets/scripts/install-secret-file\.sh|storage/scripts/prepare-persistent-directory\.sh))' \
+              <<<"$changed_files"
+            then
+              echo "relevant=false" >> "$GITHUB_OUTPUT"
+              echo "Commit enthält keine Monitoring-Core-Deploymentänderung."
+              exit 0
+            fi
+          fi
+
+          echo "relevant=true" >> "$GITHUB_OUTPUT"
+
+          for attempt in {1..30}; do
+            runs="$(
+              gh api \
+                "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SOURCE_SHA&per_page=100"
+            )"
+
+            image_status="$(
+              jq -r '
+                [.workflow_runs[] | select(.name == "Container Image Security")]
+                | sort_by(.created_at)
+                | last
+                | .status // ""
+              ' <<<"$runs"
+            )"
+
+            image_conclusion="$(
+              jq -r '
+                [.workflow_runs[] | select(.name == "Container Image Security")]
+                | sort_by(.created_at)
+                | last
+                | .conclusion // ""
+              ' <<<"$runs"
+            )"
+
+            if [[ "$image_status" == "completed" && "$image_conclusion" == "success" ]]; then
+              echo "Image-Security-Gate für $SOURCE_SHA ist grün."
+              exit 0
+            fi
+
+            if [[ "$image_status" == "completed" && "$image_conclusion" != "success" ]]; then
+              echo "Container Image Security ist für $SOURCE_SHA fehlgeschlagen: $image_conclusion" >&2
+              exit 1
+            fi
+
+            if [[ "$attempt" -eq 30 ]]; then
+              echo "Container Image Security wurde für $SOURCE_SHA nicht rechtzeitig erfolgreich abgeschlossen." >&2
+              exit 1
+            fi
+
+            echo "Warte auf Container Image Security für $SOURCE_SHA ($attempt/30)."
+            sleep 5
+          done
+
+      - name: Repository des freigegebenen Commits auschecken
+        if: steps.gate.outputs.relevant == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Pflicht-Secrets validieren
+        if: steps.gate.outputs.relevant == 'true'
+        env:
+          TEST_HOST: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_HOST }}
+          SSH_PRIVATE_KEY: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_KNOWN_HOSTS }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -n "$TEST_HOST"
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          test -n "$DISCORD_WEBHOOK_URL"
+
+      - name: SSH-Zugang vorbereiten
+        if: steps.gate.outputs.relevant == 'true'
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/development-monitoring"
+          chmod 0600 "$RUNNER_TEMP/development-monitoring"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+
+      - name: Verwalteten Development-Zugang prüfen
+        if: steps.gate.outputs.relevant == 'true'
+        env:
+          TEST_HOST: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_HOST }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh \
+            -i "$RUNNER_TEMP/development-monitoring" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            bootstrap@"$TEST_HOST" \
+            'sudo -n true'
+
+      - name: Freigegebenen Monitoring-Release bereitstellen
+        if: steps.gate.outputs.relevant == 'true'
+        env:
+          TEST_HOST: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_HOST }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          release_root="/srv/merchfactory/releases/development-monitoring/$SOURCE_SHA"
+
+          tar -czf - \
+            deployment/service-release.py \
+            deployment/monitoring/prometheus \
+            deployment/monitoring/loki \
+            deployment/monitoring/grafana \
+            deployment/monitoring/alertmanager \
+            deployment/monitoring/blackbox \
+            monitoring/prometheus \
+            monitoring/loki \
+            monitoring/grafana \
+            monitoring/alertmanager \
+            monitoring/blackbox \
+            configuration/container-image-policy.json \
+            configuration/deployment-policy.json \
+            platform/network/scripts/prepare-monitoring-network.sh \
+            platform/network/scripts/prepare-alerting-egress-network.sh \
+            platform/secrets/scripts/install-secret-file.sh \
+            platform/storage/scripts/prepare-persistent-directory.sh \
+            scripts/deploy-development-monitoring-core.sh \
+            scripts/verify-monitoring-service.py \
+            scripts/test-development-alert-routing.sh \
+          | ssh \
+              -i "$RUNNER_TEMP/development-monitoring" \
+              -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              bootstrap@"$TEST_HOST" \
+              "sudo rm -rf '$release_root' &&
+               sudo install -d -o root -g root -m 0755 '$release_root' &&
+               sudo tar -xzf - -C '$release_root' &&
+               sudo chown -R root:root '$release_root'"
+
+          printf '%s' "$DISCORD_WEBHOOK_URL" \
+          | ssh \
+              -i "$RUNNER_TEMP/development-monitoring" \
+              -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              bootstrap@"$TEST_HOST" \
+              "sudo bash '$release_root/platform/secrets/scripts/install-secret-file.sh' alertmanager discord-webhook-url 65534 65534 0400 >/dev/null"
+
+          ssh \
+            -i "$RUNNER_TEMP/development-monitoring" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            bootstrap@"$TEST_HOST" \
+            "sudo bash '$release_root/scripts/deploy-development-monitoring-core.sh' '$release_root' '$SOURCE_SHA'"
+
+      - name: Deployment-Summary
+        if: steps.gate.outputs.relevant == 'true'
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          {
+            echo '## Development Monitoring Core'
+            echo
+            echo "- Commit: `$SOURCE_SHA`"
+            echo "- Services: Blackbox (internal-only / no egress), Alertmanager, Prometheus, Loki, Grafana"
+            echo "- Target: development"
+            echo "- Result: deployed and verified"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Kein Monitoring-relevanter Diff
+        if: steps.gate.outputs.relevant != 'true'
+        run: echo "Commit enthält keine Monitoring-Core-Deploymentänderung; kein Deployment erforderlich."
+
+      - name: Temporären SSH-Schlüssel entfernen
+        if: always()
+        run: rm -f "$RUNNER_TEMP/development-monitoring"

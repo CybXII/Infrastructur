@@ -1,0 +1,270 @@
+---
+- name: Node-Exporter-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - node_exporter_version is match('^[0-9]+\.[0-9]+\.[0-9]+$')
+      - node_exporter_download_url is match('^https://github\.com/prometheus/node_exporter/releases/download/')
+      - node_exporter_archive_sha256 is match('^[0-9a-f]{64}$')
+      - node_exporter_user | length > 0
+      - node_exporter_group | length > 0
+      - node_exporter_binary_path is match('^/')
+      - node_exporter_monitoring_network | length > 0
+      - node_exporter_monitoring_subnet is match('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$')
+      - node_exporter_monitoring_gateway is match('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+      - node_exporter_monitoring_bridge | length > 0
+      - node_exporter_monitoring_bridge | length <= 15
+      - node_exporter_listen_port | int > 0
+      - node_exporter_listen_port | int < 65536
+      - node_exporter_netdev_use_netlink in [true, false]
+      - node_exporter_tasks_max | int > 0
+    fail_msg: Ungültige Node-Exporter-Konfiguration.
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Gruppe anlegen
+  ansible.builtin.group:
+    name: "{{ node_exporter_group }}"
+    system: true
+    state: present
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Benutzer anlegen
+  ansible.builtin.user:
+    name: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    password_lock: true
+    state: present
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Cacheverzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ node_exporter_cache_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Extraktionswurzel anlegen
+  ansible.builtin.file:
+    path: "{{ node_exporter_extract_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: node_exporter_enabled | bool
+
+- name: Monitoring-Netzwerkskript installieren
+  ansible.builtin.copy:
+    src: "{{ node_exporter_network_script_source }}"
+    dest: "{{ node_exporter_network_script_path }}"
+    owner: root
+    group: root
+    mode: '0750'
+  when: node_exporter_enabled | bool
+
+- name: Monitoring-Netzwerkzustand prüfen
+  ansible.builtin.command:
+    argv:
+      - docker
+      - network
+      - inspect
+      - "{{ node_exporter_monitoring_network }}"
+  register: node_exporter_monitoring_network_inspect
+  changed_when: false
+  failed_when: false
+  when: node_exporter_enabled | bool
+
+- name: Monitoring-Netzwerk erstellen
+  ansible.builtin.command:
+    argv:
+      - "{{ node_exporter_network_script_path }}"
+  environment:
+    MERCHFACTORY_MONITORING_NETWORK: "{{ node_exporter_monitoring_network }}"
+    MERCHFACTORY_MONITORING_SUBNET: "{{ node_exporter_monitoring_subnet }}"
+    MERCHFACTORY_MONITORING_GATEWAY: "{{ node_exporter_monitoring_gateway }}"
+    MERCHFACTORY_MONITORING_BRIDGE: "{{ node_exporter_monitoring_bridge }}"
+  when:
+    - node_exporter_enabled | bool
+    - node_exporter_monitoring_network_inspect.rc != 0
+  changed_when: true
+
+- name: Monitoring-Netzwerk validieren
+  ansible.builtin.command:
+    argv:
+      - "{{ node_exporter_network_script_path }}"
+  environment:
+    MERCHFACTORY_MONITORING_NETWORK: "{{ node_exporter_monitoring_network }}"
+    MERCHFACTORY_MONITORING_SUBNET: "{{ node_exporter_monitoring_subnet }}"
+    MERCHFACTORY_MONITORING_GATEWAY: "{{ node_exporter_monitoring_gateway }}"
+    MERCHFACTORY_MONITORING_BRIDGE: "{{ node_exporter_monitoring_bridge }}"
+  when:
+    - node_exporter_enabled | bool
+    - node_exporter_monitoring_network_inspect.rc == 0
+  changed_when: false
+
+- name: Node-Exporter-Archiv mit SHA256-Prüfung herunterladen
+  ansible.builtin.get_url:
+    url: "{{ node_exporter_download_url }}"
+    dest: "{{ node_exporter_archive_path }}"
+    owner: root
+    group: root
+    mode: '0640'
+    checksum: "sha256:{{ node_exporter_archive_sha256 }}"
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Versionsverzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ node_exporter_extract_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Archiv entpacken
+  ansible.builtin.unarchive:
+    src: "{{ node_exporter_archive_path }}"
+    dest: "{{ node_exporter_extract_dir }}"
+    remote_src: true
+    owner: root
+    group: root
+    extra_opts:
+      - --strip-components=1
+    creates: "{{ node_exporter_extract_dir }}/node_exporter"
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Binary installieren
+  ansible.builtin.copy:
+    src: "{{ node_exporter_extract_dir }}/node_exporter"
+    dest: "{{ node_exporter_binary_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Node Exporter neu starten
+  when: node_exporter_enabled | bool
+
+- name: Backup-Metrikengruppe anlegen
+  ansible.builtin.group:
+    name: "{{ node_exporter_textfile_group }}"
+    system: true
+    state: present
+  when: node_exporter_enabled | bool
+
+- name: Node Exporter zur Backup-Metrikengruppe hinzufügen
+  ansible.builtin.user:
+    name: "{{ node_exporter_user }}"
+    groups:
+      - "{{ node_exporter_textfile_group }}"
+    append: true
+  notify: Node Exporter neu starten
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Traversal-ACL auf Runtime-Verzeichnis prüfen
+  ansible.builtin.command:
+    argv:
+      - getfacl
+      - -cp
+      - /var/lib/merchfactory
+  register: node_exporter_runtime_acl
+  changed_when: false
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Traversal-ACL auf Runtime-Verzeichnis setzen
+  ansible.builtin.command:
+    argv:
+      - setfacl
+      - -m
+      - "u:{{ node_exporter_user }}:--x"
+      - /var/lib/merchfactory
+  when:
+    - node_exporter_enabled | bool
+    - "'user:' ~ node_exporter_user ~ ':--x' not in node_exporter_runtime_acl.stdout_lines"
+  changed_when: true
+
+- name: Node-Exporter-Textfile-Verzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ node_exporter_textfile_directory }}"
+    state: directory
+    owner: root
+    group: "{{ node_exporter_textfile_group }}"
+    mode: '0770'
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-systemd-Unit installieren
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: "{{ node_exporter_service_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - systemd für Node Exporter neu laden
+    - Node Exporter neu starten
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Handler anwenden
+  ansible.builtin.meta: flush_handlers
+  when: node_exporter_enabled | bool
+
+- name: Node Exporter aktivieren und starten
+  ansible.builtin.systemd_service:
+    name: "{{ node_exporter_service_name }}"
+    enabled: true
+    state: started
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Dienststatus prüfen
+  ansible.builtin.command:
+    cmd: "systemctl is-active {{ node_exporter_service_name }}"
+  register: node_exporter_service_status
+  changed_when: false
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Version prüfen
+  ansible.builtin.command:
+    argv:
+      - "{{ node_exporter_binary_path }}"
+      - --version
+  register: node_exporter_version_output
+  changed_when: false
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Metrikendpunkt lokal über Monitoring-Gateway prüfen
+  ansible.builtin.uri:
+    url: "http://{{ node_exporter_listen_address }}/metrics"
+    method: GET
+    status_code: 200
+    return_content: true
+    use_proxy: false
+  register: node_exporter_metrics
+  changed_when: false
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Listener prüfen
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -ltnH
+      - "sport = :{{ node_exporter_listen_port }}"
+  register: node_exporter_listener
+  changed_when: false
+  when: node_exporter_enabled | bool
+
+- name: Node-Exporter-Baseline bestätigen
+  ansible.builtin.assert:
+    that:
+      - node_exporter_service_status.stdout | trim == 'active'
+      - "'version ' ~ node_exporter_version in (node_exporter_version_output.stdout ~ node_exporter_version_output.stderr)"
+      - "'node_cpu_seconds_total' in node_exporter_metrics.content"
+      - "'node_memory_MemAvailable_bytes' in node_exporter_metrics.content"
+      - "'node_filesystem_avail_bytes' in node_exporter_metrics.content"
+      - "'node_network_receive_bytes_total' in node_exporter_metrics.content"
+      - node_exporter_monitoring_gateway in node_exporter_listener.stdout
+      - "'0.0.0.0:' ~ (node_exporter_listen_port | string) not in node_exporter_listener.stdout"
+      - "'[::]:' ~ (node_exporter_listen_port | string) not in node_exporter_listener.stdout"
+    fail_msg: Node Exporter entspricht nicht der erwarteten Host-Monitoring-Baseline.
+  when: node_exporter_enabled | bool

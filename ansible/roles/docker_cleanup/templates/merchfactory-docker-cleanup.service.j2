@@ -1,0 +1,21 @@
+# Managed by Ansible - do not edit manually
+[Unit]
+Description=Merchfactory Docker retention cleanup
+Documentation=https://github.com/Merchfactory/Infrastructure
+Requires=docker.service
+After=docker.service
+ConditionPathExists=/var/run/docker.sock
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 {{ docker_cleanup_script_path }} --apply --policy {{ docker_cleanup_policy_path }} --image-policy {{ docker_cleanup_image_policy_path }} --deployment-state-root {{ docker_cleanup_deployment_state_root }} --report {{ docker_cleanup_report_path }}
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths={{ docker_cleanup_report_dir }} /run/lock

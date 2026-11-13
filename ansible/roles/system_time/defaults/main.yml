@@ -1,0 +1,18 @@
+---
+system_timezone: Europe/Berlin
+system_locale: en_US.UTF-8
+
+system_ntp_package: chrony
+system_ntp_service: chronyd
+system_ntp_sources:
+  - "pool 0.pool.ntp.org iburst"
+  - "pool 1.pool.ntp.org iburst"
+  - "pool 2.pool.ntp.org iburst"
+  - "pool 3.pool.ntp.org iburst"
+
+system_ntp_makestep_threshold: 1.0
+system_ntp_makestep_updates: 3
+system_ntp_waitsync_attempts: 10
+system_ntp_waitsync_correction: 0.5
+system_ntp_waitsync_max_skew: 0.0
+system_ntp_waitsync_interval: 2

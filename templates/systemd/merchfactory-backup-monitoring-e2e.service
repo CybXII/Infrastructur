@@ -1,0 +1,21 @@
+[Unit]
+Description=Merchfactory development backup monitoring synthetic alert checks
+Wants=network-online.target
+After=network-online.target
+ConditionPathIsDirectory=/var/lib/merchfactory/node_exporter/textfile
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/flock -n /run/lock/merchfactory-backup-monitoring-e2e.lock /bin/bash /opt/merchfactory/monitoring-e2e/run-backup-monitoring-e2e-and-notify.sh
+TimeoutStartSec=7200
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/merchfactory/node_exporter/textfile /run/lock /tmp
+ReadOnlyPaths=/srv/merchfactory/secrets/alertmanager/discord-webhook-url
+StandardOutput=journal
+StandardError=journal

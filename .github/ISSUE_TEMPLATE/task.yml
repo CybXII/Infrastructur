@@ -1,0 +1,48 @@
+name: Task anlegen
+description: Klar abgegrenzte technische oder organisatorische Aufgabe erfassen.
+title: "Task: "
+labels:
+  - governance
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Ziel
+      description: Welcher Zustand soll nach Abschluss erreicht sein?
+    validations:
+      required: true
+  - type: textarea
+    id: work
+    attributes:
+      label: Arbeitsschritte
+      description: Welche wesentlichen Schritte sind erforderlich?
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Abhängigkeiten
+      description: Verknüpfte Epics, Issues, Entscheidungen, Systeme oder Vorarbeiten.
+  - type: textarea
+    id: definition-of-done
+    attributes:
+      label: Definition of Done
+      description: Formuliere überprüfbare Abschlusskriterien.
+      placeholder: |
+        - [ ] Ergebnis umgesetzt
+        - [ ] Tests oder Prüfung erfolgreich
+        - [ ] Dokumentation aktualisiert
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Vorprüfung
+      options:
+        - label: Die Aufgabe ist ausreichend abgegrenzt und nicht bereits als Issue vorhanden.
+          required: true
+        - label: Die Aufgabe enthält keine Secrets, Zugangsdaten oder Kundendaten.
+          required: true

@@ -1,0 +1,30 @@
+version: 1
+service: reference-http-service
+
+objects:
+  - id: application-data
+    class: A
+    storage:
+      type: bind
+      source: /srv/merchfactory/persistent/reference-http-service/data
+      target: /var/lib/reference-http-service
+    ownership:
+      uid: 65532
+      gid: 65532
+      directory_mode: '0750'
+    backup:
+      required: true
+      method: file
+      consistency: service-stopped-or-application-safe
+      offsite: true
+    restore:
+      method: file-restore
+      test_frequency: monthly
+
+retention:
+  daily: 14
+  weekly: 8
+  monthly: 12
+
+notes:
+  - Die Referenzanwendung selbst verwendet den Pfad nicht fachlich; der Integrationstest beweist die Persistenz des Bind-Mounts über ein Container-Recreate.

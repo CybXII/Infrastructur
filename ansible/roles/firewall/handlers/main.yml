@@ -1,0 +1,6 @@
+---
+- name: Firewall neu laden
+  ansible.builtin.command:
+    cmd: firewall-cmd --reload
+  changed_when: true
+  when: firewall_runtime_reload | bool

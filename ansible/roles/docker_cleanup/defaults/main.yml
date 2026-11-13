@@ -1,0 +1,24 @@
+---
+docker_cleanup_enabled: true
+
+docker_cleanup_script_source: "{{ playbook_dir }}/../../scripts/docker-retention-cleanup.py"
+docker_cleanup_script_path: /usr/local/sbin/merchfactory-docker-cleanup
+
+docker_cleanup_config_dir: /etc/merchfactory
+docker_cleanup_policy_source: "{{ playbook_dir }}/../../configuration/docker-cleanup-policy.json"
+docker_cleanup_policy_path: "{{ docker_cleanup_config_dir }}/docker-cleanup-policy.json"
+docker_cleanup_image_policy_source: "{{ playbook_dir }}/../../configuration/container-image-policy.json"
+docker_cleanup_image_policy_path: "{{ docker_cleanup_config_dir }}/container-image-policy.json"
+
+docker_cleanup_deployment_state_root: /srv/merchfactory/deployments
+docker_cleanup_report_dir: /var/log/merchfactory/docker-cleanup
+docker_cleanup_report_path: "{{ docker_cleanup_report_dir }}/latest.json"
+
+docker_cleanup_service_name: merchfactory-docker-cleanup.service
+docker_cleanup_timer_name: merchfactory-docker-cleanup.timer
+docker_cleanup_service_path: "/etc/systemd/system/{{ docker_cleanup_service_name }}"
+docker_cleanup_timer_path: "/etc/systemd/system/{{ docker_cleanup_timer_name }}"
+
+docker_cleanup_on_calendar: "Sun *-*-* 04:30:00"
+docker_cleanup_randomized_delay_sec: 900
+docker_cleanup_timer_persistent: true

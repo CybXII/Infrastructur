@@ -1,0 +1,71 @@
+---
+- name: Merchfactory Server-Bootstrap
+  hosts: bootstrap_targets
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Maximal einen Runner-Host pro Inventory erlauben
+      ansible.builtin.assert:
+        that:
+          - (groups.get('runner_hosts', []) | length) <= 1
+        fail_msg: >-
+          Mehr als ein Host ist der Gruppe runner_hosts zugeordnet. Pro
+          Inventory darf aktuell nur ein Controller für das gemeinsame
+          ephemeral-linux Scale Set betrieben werden.
+      run_once: true
+
+    - name: Unterstütztes Betriebssystem validieren
+      ansible.builtin.assert:
+        that:
+          - ansible_architecture == 'x86_64'
+          - ansible_distribution in ['AlmaLinux', 'Rocky']
+          - ansible_distribution_major_version == '9'
+        fail_msg: >-
+          Nicht unterstütztes Zielsystem: {{ ansible_distribution }}
+          {{ ansible_distribution_version }} auf {{ ansible_architecture }}.
+          Unterstützt werden AlmaLinux OS 9 und Rocky Linux 9 auf x86_64.
+          Siehe docs/33-supported-operating-systems.md.
+        success_msg: >-
+          Unterstütztes Zielsystem erkannt: {{ ansible_distribution }}
+          {{ ansible_distribution_version }} auf {{ ansible_architecture }}.
+
+  roles:
+    - role: base_installation
+    - role: package_updates
+    - role: system_time
+    - role: user_management
+    - role: storage_preparation
+    - role: system_logging
+    - role: ssh_hardening
+    - role: firewall
+    - role: fail2ban
+    - role: docker_runtime
+    - role: node_exporter
+    - role: cadvisor
+    - role: alloy
+    - role: docker_cleanup
+
+- name: App-Deployment-Zugriff auf ausgewähltem Host bereitstellen
+  hosts: app_deployment_hosts
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: app_deployment_host
+
+- name: Traefik Edge Proxy auf ausgewähltem Host bereitstellen
+  hosts: edge_hosts
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: traefik_edge_host
+
+- name: GitHub Runner Platform auf ausgewähltem Host bereitstellen
+  hosts: runner_hosts
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: github_runner_host

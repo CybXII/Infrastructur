@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "first_party": {
+    "registry": "ghcr.io",
+    "namespace": "merchfactory",
+    "visibility": "private",
+    "require_digest": true,
+    "require_provenance_attestation": true,
+    "provenance_model": "github-artifact-attestation",
+    "scan_required": true
+  },
+  "third_party": [
+    {
+      "repository": "docker.io/library/traefik",
+      "usage": "runtime",
+      "reason": "Reverse Proxy der Container Platform",
+      "scan_required": true,
+      "upstream_provenance": "verify-when-published"
+    },
+    {
+      "repository": "docker.io/traefik/whoami",
+      "usage": "ci-test",
+      "reason": "Minimaler HTTP-Testdienst für Traefik-Integrationstests",
+      "scan_required": true,
+      "upstream_provenance": "verify-when-published"
+    },
+    {
+      "repository": "quay.io/prometheus/prometheus",
+      "usage": "runtime",
+      "reason": "Prometheus Metrics- und Rule-Engine der v0.6 Monitoring-Plattform",
+      "scan_required": true,
+      "upstream_provenance": "verify-when-published"
+    },
+    {
+      "repository": "docker.io/grafana/loki",
+      "usage": "runtime",
+      "reason": "Loki zentrale Logspeicherung der v0.6 Monitoring-Plattform",
+      "scan_required": true,
+      "upstream_provenance": "verify-when-published"
+    },
+    {
+      "repository": "docker.io/grafana/grafana"
+    },
+    {
+      "repository": "quay.io/prometheus/alertmanager",
+      "usage": "runtime",
+      "reason": "Alertmanager Alarmverarbeitung der v0.6 Monitoring-Plattform",
+      "scan_required": true,
+      "upstream_provenance": "verify-when-published"
+    },
+    {
+      "repository": "docker.io/prom/blackbox-exporter",
+      "usage": "runtime",
+      "reason": "Blackbox HTTP/TLS probes for central monitoring #95; runtime security gate pending",
+      "scan_required": true,
+      "upstream_provenance": "verify-when-published"
+    }
+  ],
+  "vulnerability_policy": {
+    "report_severities": [
+      "HIGH",
+      "CRITICAL"
+    ],
+    "blocking_severities": [
+      "CRITICAL"
+    ],
+    "ignore_unfixed_for_blocking_gate": true,
+    "exception_requires": [
+      "issue",
+      "risk_assessment",
+      "owner",
+      "expiry"
+    ]
+  },
+  "retention": {
+    "protected": [
+      "digests referenced by development, staging or main",
+      "current production digest",
+      "two previous production rollback digests"
+    ],
+    "release_images_days": 365,
+    "development_images_days": 30,
+    "pull_request_images_days": 14,
+    "untagged_images_days": 14
+  }
+}

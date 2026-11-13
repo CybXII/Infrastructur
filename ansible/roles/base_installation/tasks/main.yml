@@ -1,0 +1,65 @@
+---
+- name: Paketmanager-Verfügbarkeit prüfen
+  ansible.builtin.assert:
+    that:
+      - ansible_pkg_mgr == 'dnf'
+    fail_msg: >-
+      Erwarteter Paketmanager dnf wurde nicht erkannt.
+      Erkannt: {{ ansible_pkg_mgr | default('unbekannt') }}.
+
+- name: DNF-Metadaten aktualisieren
+  ansible.builtin.dnf:
+    update_cache: true
+  when: base_installation_update_cache | bool
+  register: base_installation_cache_result
+  retries: 3
+  delay: 10
+  until: base_installation_cache_result is succeeded
+
+- name: CRB-Repository aktivieren
+  ansible.builtin.command:
+    cmd: dnf config-manager --set-enabled crb
+  register: base_installation_crb_result
+  changed_when: "'enabled' in (base_installation_crb_result.stdout | lower)"
+  failed_when: base_installation_crb_result.rc != 0
+  when: base_installation_enable_crb | bool
+
+- name: Optionales EPEL-Repository installieren
+  ansible.builtin.dnf:
+    name: "{{ base_installation_epel_package }}"
+    state: present
+  when: base_installation_install_epel | bool
+  register: base_installation_epel_result
+  retries: 3
+  delay: 10
+  until: base_installation_epel_result is succeeded
+
+- name: Erforderliche Basispakete installieren
+  ansible.builtin.dnf:
+    name: "{{ base_installation_packages }}"
+    state: present
+  register: base_installation_package_result
+  retries: 3
+  delay: 10
+  until: base_installation_package_result is succeeded
+
+- name: firewalld aktivieren und starten
+  ansible.builtin.systemd_service:
+    name: firewalld
+    enabled: true
+    state: started
+
+- name: Python-Interpreter prüfen
+  ansible.builtin.stat:
+    path: /usr/bin/python3
+  register: base_installation_python
+
+- name: Erfolgreiche Basisinstallation validieren
+  ansible.builtin.assert:
+    that:
+      - base_installation_python.stat.exists
+      - base_installation_python.stat.executable
+      - ansible_selinux.status == 'enabled'
+    fail_msg: >-
+      Basisinstallation unvollständig: Python 3 oder SELinux-Anforderung
+      wurde nicht erfüllt.

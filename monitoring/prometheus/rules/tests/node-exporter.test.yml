@@ -1,0 +1,174 @@
+rule_files:
+  - /etc/prometheus/rules/node-exporter.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: node-exporter-down
+    interval: 1m
+    input_series:
+      - series: 'up{job="node-exporter",instance="host-01"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: NodeExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              job: node-exporter
+              instance: host-01
+            exp_annotations:
+              summary: Node Exporter is unreachable
+              description: Prometheus cannot scrape Node Exporter for at least two minutes.
+              runbook: docs/63-node-exporter.md
+
+  - name: host-memory-pressure
+    interval: 1m
+    input_series:
+      - series: 'node_memory_MemAvailable_bytes{job="node-exporter",instance="host-01"}'
+        values: '5x20'
+      - series: 'node_memory_MemTotal_bytes{job="node-exporter",instance="host-01"}'
+        values: '100x20'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: HostMemoryPressure
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              owner: platform
+              job: node-exporter
+              instance: host-01
+            exp_annotations:
+              summary: Host memory pressure is high
+              description: Host memory utilization has exceeded 90 percent for ten minutes.
+              runbook: docs/63-node-exporter.md
+
+  - name: host-filesystem-space-low
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{job="node-exporter",instance="host-01",device="/dev/vda1",mountpoint="/",fstype="xfs"}'
+        values: '20x25'
+      - series: 'node_filesystem_size_bytes{job="node-exporter",instance="host-01",device="/dev/vda1",mountpoint="/",fstype="xfs"}'
+        values: '100x25'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: HostFilesystemSpaceLow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              owner: platform
+              job: node-exporter
+              instance: host-01
+              device: /dev/vda1
+              mountpoint: /
+              fstype: xfs
+            exp_annotations:
+              summary: Host filesystem space is low
+              description: A monitored filesystem has less than 25 percent but at least 15 percent available space for fifteen minutes.
+              runbook: docs/63-node-exporter.md
+
+  - name: host-filesystem-space-critical
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{job="node-exporter",instance="host-01",device="/dev/vda1",mountpoint="/",fstype="xfs"}'
+        values: '10x15'
+      - series: 'node_filesystem_size_bytes{job="node-exporter",instance="host-01",device="/dev/vda1",mountpoint="/",fstype="xfs"}'
+        values: '100x15'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HostFilesystemSpaceCritical
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              job: node-exporter
+              instance: host-01
+              device: /dev/vda1
+              mountpoint: /
+              fstype: xfs
+            exp_annotations:
+              summary: Host filesystem is critically full
+              description: A monitored filesystem has less than 15 percent available space for five minutes.
+              runbook: docs/79-monitoring-retention-capacity.md
+
+  - name: host-filesystem-inodes-low
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_files_free{job="node-exporter",instance="host-01",device="/dev/vda1",mountpoint="/",fstype="xfs"}'
+        values: '5x25'
+      - series: 'node_filesystem_files{job="node-exporter",instance="host-01",device="/dev/vda1",mountpoint="/",fstype="xfs"}'
+        values: '100x25'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: HostFilesystemInodesLow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              owner: platform
+              job: node-exporter
+              instance: host-01
+              device: /dev/vda1
+              mountpoint: /
+              fstype: xfs
+            exp_annotations:
+              summary: Host filesystem inodes are low
+              description: A monitored filesystem has less than 10 percent free inodes for fifteen minutes.
+              runbook: docs/63-node-exporter.md
+
+  - name: host-clock-skew
+    interval: 1m
+    input_series:
+      - series: 'node_time_seconds{job="node-exporter",instance="host-01"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: HostClockSkew
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              job: node-exporter
+              instance: host-01
+            exp_annotations:
+              summary: Host clock skew is too large
+              description: Host clock differs from Prometheus by more than 60 seconds for five minutes.
+              runbook: docs/63-node-exporter.md
+
+  - name: host-high-cpu
+    interval: 1m
+    input_series:
+      - series: 'node_cpu_seconds_total{job="node-exporter",instance="host-01",cpu="0",mode="idle"}'
+        values: '0+3x30'
+    alert_rule_test:
+      - eval_time: 21m
+        alertname: HostHighCPUUtilization
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              owner: platform
+              instance: host-01
+            exp_annotations:
+              summary: Host CPU utilization is high
+              description: Average host CPU utilization has exceeded 90 percent for fifteen minutes.
+              runbook: docs/63-node-exporter.md
+
+  - name: host-network-errors
+    interval: 1m
+    input_series:
+      - series: 'node_network_receive_errs_total{job="node-exporter",instance="host-01",device="eth0"}'
+        values: '0+60x20'
+      - series: 'node_network_transmit_errs_total{job="node-exporter",instance="host-01",device="eth0"}'
+        values: '0+60x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: HostNetworkErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              owner: platform
+              instance: host-01
+            exp_annotations:
+              summary: Host network errors detected
+              description: Receive or transmit errors have been observed on a non-loopback interface for ten minutes.
+              runbook: docs/63-node-exporter.md

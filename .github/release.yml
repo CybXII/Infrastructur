@@ -1,0 +1,22 @@
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+  categories:
+    - title: Security
+      labels:
+        - security
+    - title: Deployment und Betrieb
+      labels:
+        - deployment
+        - ci-cd
+    - title: Dokumentation und Governance
+      labels:
+        - documentation
+        - governance
+    - title: Abhängigkeiten
+      labels:
+        - dependencies
+    - title: Weitere Änderungen
+      labels:
+        - "*"

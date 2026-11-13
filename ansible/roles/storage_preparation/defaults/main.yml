@@ -1,0 +1,56 @@
+---
+storage_platform_root: /srv/merchfactory
+storage_persistent_root: "{{ storage_platform_root }}/persistent"
+storage_shared_root: "{{ storage_platform_root }}/shared"
+storage_secret_root: "{{ storage_platform_root }}/secrets"
+storage_runtime_root: /var/lib/merchfactory
+storage_runtime_group: merchfactory-runtime
+storage_temporary_root: /var/tmp/merchfactory
+storage_log_root: /var/log/merchfactory
+
+storage_directories:
+  - path: "{{ storage_platform_root }}"
+    owner: root
+    group: root
+    mode: '0755'
+    class: platform
+  - path: "{{ storage_persistent_root }}"
+    owner: root
+    group: root
+    mode: '0750'
+    class: persistent
+  - path: "{{ storage_shared_root }}"
+    owner: root
+    group: root
+    mode: '0750'
+    class: persistent
+  - path: "{{ storage_secret_root }}"
+    owner: root
+    group: root
+    mode: '0700'
+    class: secret
+  - path: "{{ storage_runtime_root }}"
+    owner: root
+    group: "{{ storage_runtime_group }}"
+    mode: '0750'
+    class: persistent
+  - path: "{{ storage_temporary_root }}"
+    owner: root
+    group: root
+    mode: '1770'
+    class: temporary
+  - path: "{{ storage_log_root }}"
+    owner: root
+    group: root
+    mode: '0750'
+    class: persistent
+
+# Optionale zusätzliche Dateisysteme. Ohne Einträge werden keine Mounts verändert.
+# Beispiel:
+# storage_mounts:
+#   - path: /srv/merchfactory/persistent
+#     src: /dev/disk/by-id/...
+#     fstype: xfs
+#     opts: defaults,noatime
+#     state: mounted
+storage_mounts: []

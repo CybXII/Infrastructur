@@ -1,0 +1,5 @@
+- targets:
+    - 172.30.250.1:8080
+  labels:
+    service: cadvisor
+    component: container-metrics

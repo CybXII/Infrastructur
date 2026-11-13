@@ -1,0 +1,64 @@
+rule_files:
+  - /etc/prometheus/rules/backup.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: backup-failed
+    interval: 1m
+    input_series:
+      - series: 'merchfactory_backup_last_success{service="example",backup="application-data"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: BackupJobFailed
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              service: example
+              backup: application-data
+            exp_annotations:
+              summary: Backup job failed
+              description: The latest backup run for example / application-data failed.
+              runbook: docs/70-backup-monitoring.md
+
+  - name: backup-stale
+    interval: 1h
+    input_series:
+      - series: 'merchfactory_backup_last_success_timestamp_seconds{service="example",backup="application-data"}'
+        values: '0x30'
+      - series: 'merchfactory_backup_max_age_seconds{service="example",backup="application-data"}'
+        values: '3600x30'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: BackupTooOld
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              service: example
+              backup: application-data
+            exp_annotations:
+              summary: Backup is stale
+              description: The latest successful backup for example / application-data is older than its configured maximum age.
+              runbook: docs/70-backup-monitoring.md
+
+  - name: restore-test-failed
+    interval: 1m
+    input_series:
+      - series: 'merchfactory_backup_restore_test_last_success{service="example",backup="application-data"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: RestoreTestFailed
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              service: example
+              backup: application-data
+            exp_annotations:
+              summary: Backup restore test failed
+              description: The latest restore test for example / application-data failed.
+              runbook: docs/70-backup-monitoring.md

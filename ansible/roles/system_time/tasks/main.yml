@@ -1,0 +1,100 @@
+---
+- name: Zeit- und Locale-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - system_timezone | length > 0
+      - system_locale | length > 0
+      - system_ntp_sources is iterable
+      - system_ntp_sources | length > 0
+      - system_ntp_waitsync_attempts | int > 0
+      - system_ntp_waitsync_interval | int >= 1
+    fail_msg: Ungültige Zeit-, Locale- oder NTP-Konfiguration.
+
+- name: Locale-Paket sicherstellen
+  ansible.builtin.dnf:
+    name: glibc-langpack-en
+    state: present
+
+- name: Aktuelle Locale-Konfiguration lesen
+  ansible.builtin.command:
+    cmd: cat /etc/locale.conf
+  register: system_time_current_locale
+  changed_when: false
+  failed_when: false
+
+- name: System-Locale bei Abweichung setzen
+  ansible.builtin.command:
+    cmd: localectl set-locale LANG={{ system_locale }}
+  when: "('LANG=' ~ system_locale) not in system_time_current_locale.stdout_lines"
+  changed_when: true
+
+- name: Aktuelle Zeitzone lesen
+  ansible.builtin.command:
+    cmd: timedatectl show --property=Timezone --value
+  register: system_time_current_timezone
+  changed_when: false
+
+- name: Zeitzone setzen
+  ansible.builtin.command:
+    cmd: timedatectl set-timezone {{ system_timezone }}
+  when: system_time_current_timezone.stdout | trim != system_timezone
+  changed_when: true
+
+- name: Chrony installieren
+  ansible.builtin.dnf:
+    name: "{{ system_ntp_package }}"
+    state: present
+
+- name: Chrony-Konfiguration installieren
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: /etc/chrony.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Chronyd neu starten
+
+- name: Chronyd aktivieren und starten
+  ansible.builtin.systemd_service:
+    name: "{{ system_ntp_service }}"
+    enabled: true
+    state: started
+
+- name: Chrony-Handler vor Synchronisationsprüfung ausführen
+  ansible.builtin.meta: flush_handlers
+
+- name: Auf NTP-Synchronisation warten
+  ansible.builtin.command:
+    cmd: >-
+      chronyc waitsync {{ system_ntp_waitsync_attempts }}
+      {{ system_ntp_waitsync_correction }}
+      {{ system_ntp_waitsync_max_skew }}
+      {{ system_ntp_waitsync_interval }}
+  register: system_time_waitsync
+  changed_when: false
+
+- name: Chrony-Tracking prüfen
+  ansible.builtin.command:
+    cmd: chronyc tracking
+  register: system_time_tracking
+  changed_when: false
+
+- name: Effektive Zeitzone bestätigen
+  ansible.builtin.command:
+    cmd: timedatectl show --property=Timezone --value
+  register: system_time_effective_timezone
+  changed_when: false
+
+- name: Effektive Locale bestätigen
+  ansible.builtin.command:
+    cmd: cat /etc/locale.conf
+  register: system_time_effective_locale
+  changed_when: false
+
+- name: Zeit- und Locale-Zustand validieren
+  ansible.builtin.assert:
+    that:
+      - system_time_effective_timezone.stdout | trim == system_timezone
+      - "('LANG=' ~ system_locale) in system_time_effective_locale.stdout_lines"
+      - "'Leap status     : Not synchronised' not in system_time_tracking.stdout"
+    fail_msg: Zeitzone, Locale oder NTP-Synchronisation entsprechen nicht dem Sollzustand.

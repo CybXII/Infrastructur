@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Sicherheitslücke vertraulich melden
+    url: https://github.com/Merchfactory/Infrastructure/security/advisories/new
+    about: Sicherheitskritische Schwachstellen, Zugangsdaten und sensible Details ausschließlich vertraulich melden.
+  - name: Allgemeine Rückfrage
+    url: https://github.com/Merchfactory/Infrastructure/discussions
+    about: Für Fragen ohne konkreten Änderungsbedarf nach Möglichkeit Discussions verwenden.

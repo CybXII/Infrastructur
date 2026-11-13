@@ -1,0 +1,139 @@
+---
+- name: Docker-Cleanup-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - docker_cleanup_script_source | length > 0
+      - docker_cleanup_script_path | length > 0
+      - docker_cleanup_policy_source | length > 0
+      - docker_cleanup_image_policy_source | length > 0
+      - docker_cleanup_deployment_state_root | length > 0
+      - docker_cleanup_report_dir | length > 0
+      - docker_cleanup_on_calendar | length > 0
+      - docker_cleanup_randomized_delay_sec | int >= 0
+    fail_msg: Ungültige Docker-Cleanup-Konfiguration.
+  when: docker_cleanup_enabled | bool
+
+- name: Docker-Cleanup-Konfigurationsverzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ docker_cleanup_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  when: docker_cleanup_enabled | bool
+
+- name: Deployment-State-Wurzel anlegen
+  ansible.builtin.file:
+    path: "{{ docker_cleanup_deployment_state_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  when: docker_cleanup_enabled | bool
+
+- name: Docker-Cleanup-Reportverzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ docker_cleanup_report_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  when: docker_cleanup_enabled | bool
+
+- name: Docker-Cleanup-Skript installieren
+  ansible.builtin.copy:
+    src: "{{ docker_cleanup_script_source }}"
+    dest: "{{ docker_cleanup_script_path }}"
+    owner: root
+    group: root
+    mode: '0750'
+  register: docker_cleanup_script
+  when: docker_cleanup_enabled | bool
+
+- name: Docker-Cleanup-Policy installieren
+  ansible.builtin.copy:
+    src: "{{ docker_cleanup_policy_source }}"
+    dest: "{{ docker_cleanup_policy_path }}"
+    owner: root
+    group: root
+    mode: '0640'
+  register: docker_cleanup_policy
+  when: docker_cleanup_enabled | bool
+
+- name: Container-Image-Policy für Cleanup installieren
+  ansible.builtin.copy:
+    src: "{{ docker_cleanup_image_policy_source }}"
+    dest: "{{ docker_cleanup_image_policy_path }}"
+    owner: root
+    group: root
+    mode: '0640'
+  register: docker_cleanup_image_policy
+  when: docker_cleanup_enabled | bool
+
+- name: Docker-Cleanup-Service installieren
+  ansible.builtin.template:
+    src: merchfactory-docker-cleanup.service.j2
+    dest: "{{ docker_cleanup_service_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: docker_cleanup_service
+  when: docker_cleanup_enabled | bool
+
+- name: Docker-Cleanup-Timer installieren
+  ansible.builtin.template:
+    src: merchfactory-docker-cleanup.timer.j2
+    dest: "{{ docker_cleanup_timer_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: docker_cleanup_timer
+  when: docker_cleanup_enabled | bool
+
+- name: systemd nach Docker-Cleanup-Änderungen neu laden
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when:
+    - docker_cleanup_enabled | bool
+    - >-
+      docker_cleanup_service.changed
+      or docker_cleanup_timer.changed
+
+- name: Docker-Cleanup-Dry-Run beim Bootstrap prüfen
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - "{{ docker_cleanup_script_path }}"
+      - --policy
+      - "{{ docker_cleanup_policy_path }}"
+      - --image-policy
+      - "{{ docker_cleanup_image_policy_path }}"
+      - --deployment-state-root
+      - "{{ docker_cleanup_deployment_state_root }}"
+      - --report
+      - "{{ docker_cleanup_report_dir }}/bootstrap-dry-run.json"
+  register: docker_cleanup_dry_run
+  changed_when: false
+  when: docker_cleanup_enabled | bool
+
+- name: Docker-Cleanup-Timer aktivieren
+  ansible.builtin.systemd_service:
+    name: "{{ docker_cleanup_timer_name }}"
+    enabled: true
+    state: started
+  when: docker_cleanup_enabled | bool
+
+- name: Docker-Cleanup-Timerstatus prüfen
+  ansible.builtin.command:
+    cmd: "systemctl is-enabled {{ docker_cleanup_timer_name }}"
+  register: docker_cleanup_timer_status
+  changed_when: false
+  when: docker_cleanup_enabled | bool
+
+- name: Docker-Cleanup-Baseline bestätigen
+  ansible.builtin.assert:
+    that:
+      - docker_cleanup_dry_run.rc == 0
+      - docker_cleanup_timer_status.stdout | trim == 'enabled'
+    fail_msg: Docker-Cleanup-Dry-Run oder Timer-Aktivierung ist fehlgeschlagen.
+  when: docker_cleanup_enabled | bool

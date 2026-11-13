@@ -1,0 +1,7 @@
+---
+- name: Configure application-host provisioning only (no full bootstrap/package updates)
+  hosts: app_deployment_hosts
+  gather_facts: false
+  become: true
+  roles:
+    - role: app_deployment_host

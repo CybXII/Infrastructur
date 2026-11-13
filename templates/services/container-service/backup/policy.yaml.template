@@ -1,0 +1,34 @@
+version: 1
+service: {{SERVICE_NAME}}
+
+objects:
+  - id: application-data
+    class: A
+    storage:
+      type: bind
+      source: /srv/merchfactory/persistent/{{SERVICE_NAME}}/data
+      target: /var/lib/{{SERVICE_NAME}}
+    ownership:
+      uid: {{SERVICE_UID}}
+      gid: {{SERVICE_GID}}
+      directory_mode: '0750'
+    backup:
+      required: true
+      method: CHANGE_ME
+      consistency: service-specific
+      offsite: true
+    restore:
+      method: CHANGE_ME
+      test_frequency: monthly
+
+retention:
+  daily: 14
+  weekly: 8
+  monthly: 12
+
+encryption:
+  required: true
+  key_reference: CHANGE_ME
+
+notes:
+  - Backup- und Restore-Verfahren müssen vor produktiver Nutzung konkretisiert und getestet werden.

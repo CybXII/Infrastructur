@@ -1,0 +1,10 @@
+---
+user_management_groups: []
+
+user_management_users: []
+
+user_management_absent_users: []
+
+user_management_sudoers_dir: /etc/sudoers.d
+user_management_validate_sudoers: /usr/sbin/visudo -cf %s
+user_management_remove_home_for_absent_users: false

@@ -1,0 +1,165 @@
+---
+- name: SSH-Hardening-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - ssh_hardening_port | int > 0
+      - ssh_hardening_port | int < 65536
+      - ssh_hardening_permit_root_login in ['yes', 'no', 'prohibit-password', 'forced-commands-only']
+      - ssh_hardening_max_auth_tries | int >= 1
+      - ssh_hardening_login_grace_time | int >= 0
+      - ssh_hardening_allow_users is iterable
+      - ssh_hardening_allow_groups is iterable
+      - ssh_hardening_legacy_dropin_files is iterable
+    fail_msg: Ungültige SSH-Hardening-Konfiguration.
+
+- name: OpenSSH-Server sicherstellen
+  ansible.builtin.dnf:
+    name: openssh-server
+    state: present
+
+- name: SSH-Dienst vor Änderungen sicherstellen
+  ansible.builtin.systemd_service:
+    name: sshd
+    enabled: true
+    state: started
+
+- name: Vorhandenen schlüsselbasierten Administratorzugang prüfen
+  ansible.builtin.assert:
+    that:
+      - >-
+        user_management_users
+        | selectattr('authorized_keys', 'defined')
+        | selectattr('authorized_keys')
+        | list
+        | length > 0
+    fail_msg: >-
+      SSH-Hardening wird abgebrochen, weil kein verwalteter Benutzer mit
+      mindestens einem öffentlichen SSH-Schlüssel definiert ist.
+  when:
+    - not ssh_hardening_password_authentication | bool
+    - user_management_users is defined
+
+- name: SSH-Drop-in-Verzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ ssh_hardening_dropin_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Veraltete Merchfactory-SSH-Drop-ins entfernen
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ ssh_hardening_legacy_dropin_files }}"
+  when: item != ssh_hardening_dropin_file
+  notify: SSH neu laden
+
+- name: SSH-Hardening-Konfiguration installieren
+  ansible.builtin.template:
+    src: 60-merchfactory-hardening.conf.j2
+    dest: "{{ ssh_hardening_dropin_file }}"
+    owner: root
+    group: root
+    mode: '0600'
+    validate: "{{ ssh_hardening_validate_command }}"
+  notify: SSH neu laden
+
+- name: Gesamte SSH-Konfiguration validieren
+  ansible.builtin.command:
+    cmd: /usr/sbin/sshd -t
+  changed_when: false
+
+- name: SSH-Handler vor Verbindungsprüfung ausführen
+  ansible.builtin.meta: flush_handlers
+
+- name: Effektive SSH-Konfiguration lesen
+  ansible.builtin.command:
+    cmd: /usr/sbin/sshd -T
+  register: ssh_hardening_effective_config
+  changed_when: false
+
+- name: Effektive SSH-Hardening-Werte bestätigen
+  ansible.builtin.assert:
+    that:
+      - item in ssh_hardening_effective_config.stdout_lines
+    fail_msg: >-
+      Effektive SSH-Konfiguration entspricht nicht dem Sollwert {{ item }}.
+      Prüfe die Reihenfolge und Priorität der Dateien unter
+      {{ ssh_hardening_dropin_dir }}.
+  loop:
+    - "port {{ ssh_hardening_port }}"
+    - "permitrootlogin {{ ssh_hardening_permit_root_login }}"
+    - "passwordauthentication {{ 'yes' if ssh_hardening_password_authentication else 'no' }}"
+    - "kbdinteractiveauthentication {{ 'yes' if ssh_hardening_kbd_interactive_authentication else 'no' }}"
+    - "pubkeyauthentication {{ 'yes' if ssh_hardening_pubkey_authentication else 'no' }}"
+    - "permitemptypasswords {{ 'yes' if ssh_hardening_empty_passwords else 'no' }}"
+    - "x11forwarding {{ 'yes' if ssh_hardening_x11_forwarding else 'no' }}"
+    - "allowtcpforwarding {{ 'yes' if ssh_hardening_allow_tcp_forwarding else 'no' }}"
+    - "allowagentforwarding {{ 'yes' if ssh_hardening_allow_agent_forwarding else 'no' }}"
+    - "maxauthtries {{ ssh_hardening_max_auth_tries }}"
+    - "logingracetime {{ ssh_hardening_login_grace_time }}"
+    - "clientaliveinterval {{ ssh_hardening_client_alive_interval }}"
+    - "clientalivecountmax {{ ssh_hardening_client_alive_count_max }}"
+    - "usedns {{ 'yes' if ssh_hardening_use_dns else 'no' }}"
+
+- name: Effektive AllowUsers-Einträge normalisiert lesen
+  ansible.builtin.shell: |
+    set -o pipefail
+    /usr/sbin/sshd -T |
+      awk '$1 == "allowusers" { for (i = 2; i <= NF; i++) print $i }' |
+      sort -u
+  args:
+    executable: /bin/bash
+  register: ssh_hardening_effective_allow_users
+  changed_when: false
+  when: ssh_hardening_allow_users | length > 0
+
+- name: Effektive AllowUsers-Liste bestätigen
+  ansible.builtin.assert:
+    that:
+      - >-
+        (ssh_hardening_effective_allow_users.stdout_lines | sort)
+        ==
+        (ssh_hardening_allow_users | unique | sort)
+    fail_msg: >-
+      Effektive SSH-AllowUsers-Liste entspricht nicht dem Sollzustand.
+      Erwartet={{ ssh_hardening_allow_users | unique | sort }},
+      effektiv={{ ssh_hardening_effective_allow_users.stdout_lines | sort }}.
+  when: ssh_hardening_allow_users | length > 0
+
+- name: Effektive AllowGroups-Einträge normalisiert lesen
+  ansible.builtin.shell: |
+    set -o pipefail
+    /usr/sbin/sshd -T |
+      awk '$1 == "allowgroups" { for (i = 2; i <= NF; i++) print $i }' |
+      sort -u
+  args:
+    executable: /bin/bash
+  register: ssh_hardening_effective_allow_groups
+  changed_when: false
+  when: ssh_hardening_allow_groups | length > 0
+
+- name: Effektive AllowGroups-Liste bestätigen
+  ansible.builtin.assert:
+    that:
+      - >-
+        (ssh_hardening_effective_allow_groups.stdout_lines | sort)
+        ==
+        (ssh_hardening_allow_groups | unique | sort)
+    fail_msg: >-
+      Effektive SSH-AllowGroups-Liste entspricht nicht dem Sollzustand.
+      Erwartet={{ ssh_hardening_allow_groups | unique | sort }},
+      effektiv={{ ssh_hardening_effective_allow_groups.stdout_lines | sort }}.
+  when: ssh_hardening_allow_groups | length > 0
+
+- name: SSH-Dienstzustand prüfen
+  ansible.builtin.systemd_service:
+    name: sshd
+  register: ssh_hardening_service
+
+- name: Laufenden SSH-Dienst bestätigen
+  ansible.builtin.assert:
+    that:
+      - ssh_hardening_service.status.ActiveState == 'active'
+    fail_msg: SSH-Dienst ist nach dem Hardening nicht aktiv.

@@ -1,0 +1,177 @@
+name: Bootstrap Managed Host
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - development
+    paths:
+      # Workflow-only changes are reviewed in CI and require a deliberate
+      # manual dispatch; they must not cause a full host update by themselves.
+      - 'ansible/**'
+      # Application-host provisioning is handled by the independent manual
+      # workflow; it must not run the host-wide package/kernel bootstrap.
+      - '!ansible/roles/app_deployment_host/**'
+      - '!ansible/playbooks/app-deployment-host.yml'
+      # cAdvisor resources use a targeted deploy, avoiding full host/kernel updates.
+      - '!ansible/roles/cadvisor/defaults/main.yml'
+      - '!ansible/playbooks/cadvisor-resources.yml'
+      - 'monitoring/alloy/**'
+      - 'platform/traefik/**'
+      - 'platform/network/**'
+      - 'scripts/*bootstrap*'
+      - 'tests/integration/*bootstrap*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-managed-host-development
+  cancel-in-progress: false
+
+jobs:
+  managed-host:
+    name: Update managed development host
+    if: vars.DEVELOPMENT_BOOTSTRAP_MANAGED_HOST_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Ansible installieren
+        run: |
+          set -Eeuo pipefail
+          python3 -m pip install 'ansible-core>=2.17,<2.19'
+          ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: Pflicht-Secrets validieren
+        env:
+          TEST_HOST: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_HOST }}
+          SSH_PRIVATE_KEY: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_KNOWN_HOSTS }}
+          RUNNER_HOST_ENABLED: ${{ vars.DEVELOPMENT_RUNNER_HOST_ENABLED }}
+          APP_DEPLOYMENT_HOST_ENABLED: ${{ vars.DEVELOPMENT_APP_DEPLOYMENT_HOST_ENABLED || 'true' }}
+          EDGE_HOST_ENABLED: ${{ vars.DEVELOPMENT_EDGE_HOST_ENABLED || 'true' }}
+          RUNNER_TOKEN: ${{ secrets.RUNNER_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$TEST_HOST"
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+
+          if [[ "$RUNNER_HOST_ENABLED" == "true" ]]; then
+            test -n "$RUNNER_TOKEN"
+          fi
+
+      - name: SSH-Zugang vorbereiten
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/bootstrap-test"
+          chmod 0600 "$RUNNER_TEMP/bootstrap-test"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/bootstrap-test" > /tmp/bootstrap-managed.pub
+
+      - name: Verwaltetes Inventar erstellen
+        env:
+          TEST_HOST: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_HOST }}
+          RUNNER_HOST_ENABLED: ${{ vars.DEVELOPMENT_RUNNER_HOST_ENABLED }}
+          APP_DEPLOYMENT_HOST_ENABLED: ${{ vars.DEVELOPMENT_APP_DEPLOYMENT_HOST_ENABLED || 'true' }}
+          EDGE_HOST_ENABLED: ${{ vars.DEVELOPMENT_EDGE_HOST_ENABLED || 'true' }}
+        run: |
+          set -Eeuo pipefail
+
+          inventory_args=(
+            --host "$TEST_HOST"
+            --initial-user bootstrap
+            --managed-user bootstrap
+            --public-key-file /tmp/bootstrap-managed.pub
+            --initial-output /tmp/bootstrap-managed-unused.json
+            --managed-output /tmp/bootstrap-managed.json
+          )
+
+          if [[ "$APP_DEPLOYMENT_HOST_ENABLED" == "true" ]]; then
+            inventory_args+=(--app-deployment-host)
+          fi
+          if [[ "$EDGE_HOST_ENABLED" == "true" ]]; then
+            inventory_args+=(--edge-host)
+          fi
+
+          if [[ "$RUNNER_HOST_ENABLED" == "true" ]]; then
+            inventory_args+=(--runner-host)
+          fi
+
+          python3 scripts/create-bootstrap-test-inventories.py "${inventory_args[@]}"
+          ansible-inventory -i /tmp/bootstrap-managed.json --graph
+
+      - name: Verwalteten Zugang prüfen
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/ansible/ansible.cfg
+          ANSIBLE_PRIVATE_KEY_FILE: ${{ runner.temp }}/bootstrap-test
+          ANSIBLE_HOST_KEY_CHECKING: 'True'
+        run: |
+          set -Eeuo pipefail
+          test -f "$ANSIBLE_PRIVATE_KEY_FILE"
+          test "$(stat -c '%a' "$ANSIBLE_PRIVATE_KEY_FILE")" = '600'
+          ansible -i /tmp/bootstrap-managed.json bootstrap_targets \
+            -m ansible.builtin.wait_for_connection \
+            -a "timeout=60 connect_timeout=5 sleep=2"
+
+      - name: Bootstrap-Update und Idempotenz prüfen
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/ansible/ansible.cfg
+          ANSIBLE_PRIVATE_KEY_FILE: ${{ runner.temp }}/bootstrap-test
+          ANSIBLE_HOST_KEY_CHECKING: 'True'
+          RUNNER_TOKEN: ${{ secrets.RUNNER_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          bash scripts/test-bootstrap-idempotency.sh \
+            /tmp/bootstrap-managed.json \
+            bootstrap-test
+
+      - name: Sicherheits- und Funktionschecks ausführen
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/ansible/ansible.cfg
+          ANSIBLE_PRIVATE_KEY_FILE: ${{ runner.temp }}/bootstrap-test
+          ANSIBLE_HOST_KEY_CHECKING: 'True'
+        run: |
+          set -Eeuo pipefail
+          ansible-playbook \
+            -i /tmp/bootstrap-managed.json \
+            tests/integration/test-bootstrap-fresh-host-verify.yaml \
+            --limit bootstrap-test
+
+      - name: Ergebnis in Job Summary schreiben
+        if: always()
+        run: |
+          if [[ -f artifacts/bootstrap-idempotency/summary.txt ]]; then
+            {
+              echo '## Bootstrap Managed Host'
+              echo '~~~text'
+              cat artifacts/bootstrap-idempotency/summary.txt
+              echo '~~~'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Testergebnisse hochladen
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bootstrap-managed-host-results
+          path: artifacts/bootstrap-idempotency/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Temporäre Zugangsdaten entfernen
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/bootstrap-test"
+          rm -f /tmp/bootstrap-managed.pub
+          rm -f /tmp/bootstrap-managed-unused.json
+          rm -f /tmp/bootstrap-managed.json

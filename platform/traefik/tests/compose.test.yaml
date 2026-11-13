@@ -1,0 +1,57 @@
+services:
+  example-service:
+    image: docker.io/traefik/whoami@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.25
+    cpu_shares: 256
+    mem_limit: 128m
+    mem_reservation: 64m
+    pids_limit: 64
+    networks:
+      - edge
+      - app
+
+  internal-worker:
+    image: docker.io/traefik/whoami@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.25
+    cpu_shares: 256
+    mem_limit: 128m
+    mem_reservation: 64m
+    pids_limit: 64
+    networks:
+      - app
+      - data
+
+  data-service:
+    image: docker.io/traefik/whoami@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.25
+    cpu_shares: 256
+    mem_limit: 128m
+    mem_reservation: 64m
+    pids_limit: 64
+    networks:
+      - data
+
+networks:
+  app:
+    internal: true
+
+  data:
+    internal: true

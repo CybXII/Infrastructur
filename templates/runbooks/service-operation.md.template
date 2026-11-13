@@ -1,0 +1,49 @@
+# Betriebsanweisung: {{SERVICE_NAME}}
+
+## Metadaten
+
+- Umgebung: `{{ENVIRONMENT}}`
+- Verantwortlich: `{{OWNER}}`
+- Letzte Prüfung: `{{LAST_REVIEW_DATE}}`
+
+## Zweck
+
+Beschreibt den sicheren Betrieb des Dienstes `{{SERVICE_NAME}}`.
+
+## Voraussetzungen
+
+- erforderliche Berechtigung: `{{REQUIRED_ROLE}}`
+- Zielsystem: `{{HOSTNAME}}`
+- Konfigurationspfad: `{{CONFIG_PATH}}`
+
+## Start und Prüfung
+
+```text
+{{START_COMMAND}}
+{{HEALTHCHECK_COMMAND}}
+```
+
+## Erwartetes Ergebnis
+
+`{{EXPECTED_RESULT}}`
+
+## Fehlerbehandlung
+
+1. Status und Logs prüfen.
+2. Letzte Änderung und Abhängigkeiten kontrollieren.
+3. Bei unklarer Ursache keine destruktiven Maßnahmen ausführen.
+4. Eskalation an `{{ESCALATION_CONTACT}}` durchführen.
+
+## Rollback
+
+```text
+{{ROLLBACK_COMMAND}}
+```
+
+## Nachweis
+
+- ausgeführt durch: `{{EXECUTED_BY}}`
+- Zeitpunkt: `{{EXECUTED_AT}}`
+- Ergebnis: `{{RESULT}}`
+
+> Diese Datei ist eine Vorlage. Sämtliche Platzhalter müssen vor einer fachlichen Nutzung ersetzt oder bewusst entfernt werden. Secrets und produktive Zugangsdaten dürfen nicht eingetragen werden.

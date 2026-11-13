@@ -1,0 +1,54 @@
+version: 1
+service: example-service
+
+objects:
+  - id: application-data
+    class: A
+    storage:
+      type: bind
+      source: /srv/merchfactory/persistent/example-service/data
+      target: /var/lib/example-service
+    ownership:
+      uid: SERVICE_UID
+      gid: SERVICE_GID
+      directory_mode: '0750'
+    backup:
+      required: true
+      method: file
+      consistency: service-specific
+      offsite: true
+    restore:
+      method: file-restore
+      test_frequency: monthly
+
+  - id: database
+    class: A
+    storage:
+      type: named-volume
+      source: example-database-data
+      target: /var/lib/example-database
+    ownership:
+      uid: DATABASE_UID
+      gid: DATABASE_GID
+    backup:
+      required: true
+      method: application-native
+      consistency: transactional
+      raw_volume_copy: false
+      offsite: true
+    restore:
+      method: application-native
+      test_frequency: monthly
+
+retention:
+  daily: 14
+  weekly: 8
+  monthly: 12
+
+encryption:
+  required: true
+  key_reference: CHANGE_ME
+
+notes:
+  - Produktive Werte für UID/GID werden aus dem tatsächlich eingesetzten Image abgeleitet.
+  - Eine Live-Dateikopie des Datenbank-Volumes ist kein gültiges Datenbankbackup.

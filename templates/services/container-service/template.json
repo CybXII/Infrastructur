@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "template": "container-service",
+  "description": "Standardtemplate für containerisierte Merchfactory-Dienste",
+  "placeholders": {
+    "SERVICE_NAME": "kebab-case Servicename",
+    "IMAGE_REFERENCE": "vollständige OCI-Referenz mit sha256-Digest",
+    "CONTAINER_PORT": "interner TCP-Port des Dienstes",
+    "PUBLIC_HOSTNAME": "öffentlicher DNS-Hostname ohne Schema",
+    "HEALTHCHECK_COMMAND": "containerinterner Liveness-Befehl ohne unnötige Remote-Abhängigkeiten",
+    "READINESS_PATH": "HTTP-Pfad für Readiness, beginnend mit /",
+    "SERVICE_UID": "numerische UID des Containerprozesses",
+    "SERVICE_GID": "numerische GID des Containerprozesses",
+    "OWNER": "verantwortliche Rolle oder Team",
+    "ESCALATION_CONTACT": "Eskalationsrolle oder Kontaktweg"
+  }
+}

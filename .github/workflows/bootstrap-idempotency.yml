@@ -1,0 +1,100 @@
+name: Bootstrap Idempotency
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-idempotency-development
+  cancel-in-progress: false
+
+jobs:
+  idempotency:
+    name: Development bootstrap twice
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Ansible installieren
+        run: |
+          set -Eeuo pipefail
+          python3 -m pip install --upgrade pip
+          python3 -m pip install 'ansible-core>=2.17,<2.19'
+          ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: SSH-Zugang vorbereiten
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/bootstrap-test"
+          chmod 0600 "$RUNNER_TEMP/bootstrap-test"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/bootstrap-test" > /tmp/bootstrap-managed.pub
+
+      - name: Temporäres Testinventar erstellen
+        env:
+          TEST_HOST: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_HOST }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$TEST_HOST"
+          python3 scripts/create-bootstrap-test-inventories.py \
+            --host "$TEST_HOST" \
+            --initial-user bootstrap \
+            --managed-user bootstrap \
+            --public-key-file /tmp/bootstrap-managed.pub \
+            --initial-output /tmp/bootstrap-idempotency-unused.json \
+            --managed-output /tmp/bootstrap-idempotency-inventory.json
+          ansible-inventory -i /tmp/bootstrap-idempotency-inventory.json --graph
+
+      - name: Bootstrap zweimal ausführen
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/ansible/ansible.cfg
+          ANSIBLE_PRIVATE_KEY_FILE: ${{ runner.temp }}/bootstrap-test
+          ANSIBLE_HOST_KEY_CHECKING: 'True'
+        run: |
+          set -Eeuo pipefail
+          test -f "$ANSIBLE_PRIVATE_KEY_FILE"
+          test "$(stat -c '%a' "$ANSIBLE_PRIVATE_KEY_FILE")" = '600'
+          bash scripts/test-bootstrap-idempotency.sh \
+            /tmp/bootstrap-idempotency-inventory.json \
+            bootstrap-test
+
+      - name: Ergebnis in Job Summary schreiben
+        if: always()
+        run: |
+          if [[ -f artifacts/bootstrap-idempotency/summary.txt ]]; then
+            {
+              echo '## Bootstrap Idempotency'
+              echo '```text'
+              cat artifacts/bootstrap-idempotency/summary.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Testergebnisse hochladen
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bootstrap-idempotency-results
+          path: artifacts/bootstrap-idempotency/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Temporäre Zugangsdaten entfernen
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/bootstrap-test"
+          rm -f /tmp/bootstrap-managed.pub
+          rm -f /tmp/bootstrap-idempotency-unused.json
+          rm -f /tmp/bootstrap-idempotency-inventory.json

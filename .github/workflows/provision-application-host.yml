@@ -1,0 +1,72 @@
+name: Provision Application Host (manual)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - development
+    paths:
+      - '.github/workflows/provision-application-host.yml'
+      - 'ansible/roles/app_deployment_host/**'
+      - 'ansible/playbooks/app-deployment-host.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: application-host-provision-development
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    if: vars.DEVELOPMENT_APP_DEPLOYMENT_HOST_ENABLED != 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Ansible
+        run: |
+          set -Eeuo pipefail
+          python3 -m pip install 'ansible-core>=2.17,<2.19'
+          ansible-galaxy collection install -r ansible/requirements.yml
+      - name: Validate SSH inputs
+        env:
+          HOST: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_HOST }}
+          KEY: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_SSH_KEY }}
+          HOST_KEYS: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$HOST" && test -n "$KEY" && test -n "$HOST_KEYS"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/app-host-key"
+          chmod 0600 "$RUNNER_TEMP/app-host-key"
+          printf '%s\n' "$HOST_KEYS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/app-host-key" > "$RUNNER_TEMP/app-host.pub"
+      - name: Build app-host-only inventory
+        env:
+          HOST: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_HOST }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/create-bootstrap-test-inventories.py \
+            --host "$HOST" \
+            --initial-user bootstrap --managed-user bootstrap \
+            --public-key-file "$RUNNER_TEMP/app-host.pub" \
+            --initial-output "$RUNNER_TEMP/initial-unused.json" \
+            --managed-output "$RUNNER_TEMP/app-host.json" \
+            --app-deployment-host
+      - name: Apply only app_deployment_host role
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/ansible/ansible.cfg
+          ANSIBLE_PRIVATE_KEY_FILE: ${{ runner.temp }}/app-host-key
+          ANSIBLE_HOST_KEY_CHECKING: 'True'
+        run: |
+          set -Eeuo pipefail
+          ansible-playbook -i "$RUNNER_TEMP/app-host.json" \
+            ansible/playbooks/app-deployment-host.yml \
+            --limit bootstrap-test
+      - name: Cleanup SSH credentials
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/app-host-key" "$RUNNER_TEMP/app-host.pub" \
+            "$RUNNER_TEMP/app-host.json" "$RUNNER_TEMP/initial-unused.json"

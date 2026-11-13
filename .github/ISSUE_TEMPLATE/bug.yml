@@ -1,0 +1,77 @@
+name: Fehler melden
+description: Reproduzierbaren Fehler oder eine unerwartete Abweichung dokumentieren.
+title: "Bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für die strukturierte Fehlermeldung. Keine Secrets, Zugangsdaten oder Kundendaten eintragen.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Fehlerbeschreibung
+      description: Was funktioniert nicht wie erwartet?
+      placeholder: Beschreibe den beobachteten Fehler präzise.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartetes Verhalten
+      description: Welches Verhalten wurde erwartet?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduktionsschritte
+      description: Welche Schritte führen zuverlässig zum Fehler?
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Umgebung
+      description: Zum Beispiel development, staging oder production sowie betroffener Dienst oder Host.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Relevante Logs oder Nachweise
+      description: Nur bereinigte Auszüge ohne Secrets oder personenbezogene Daten einfügen.
+      render: shell
+  - type: textarea
+    id: impact
+    attributes:
+      label: Auswirkung und Dringlichkeit
+      description: Welche Systeme, Prozesse oder Benutzer sind betroffen?
+    validations:
+      required: true
+  - type: textarea
+    id: definition-of-done
+    attributes:
+      label: Definition of Done
+      description: Welche überprüfbaren Bedingungen müssen für den Abschluss erfüllt sein?
+      placeholder: |
+        - [ ] Ursache identifiziert
+        - [ ] Fehler behoben
+        - [ ] Regressionstest ergänzt
+        - [ ] Dokumentation aktualisiert
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Vorprüfung
+      options:
+        - label: Ich habe nach bestehenden Issues mit demselben Fehler gesucht.
+          required: true
+        - label: Die Meldung enthält keine Secrets, Zugangsdaten oder Kundendaten.
+          required: true

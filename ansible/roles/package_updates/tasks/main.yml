@@ -1,0 +1,142 @@
+---
+- name: Update-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - package_updates_strategy in ['security', 'all', 'disabled']
+      - package_updates_maintenance_window | length > 0
+      - package_updates_randomized_delay_sec | int >= 0
+      - package_updates_reboot_timeout | int > 0
+    fail_msg: Ungültige Paket- oder Updatekonfiguration.
+
+- name: dnf-automatic installieren
+  ansible.builtin.dnf:
+    name: dnf-automatic
+    state: present
+  when: package_updates_strategy != 'disabled'
+
+- name: dnf-automatic konfigurieren
+  ansible.builtin.template:
+    src: automatic.conf.j2
+    dest: "{{ package_updates_dnf_automatic_config }}"
+    owner: root
+    group: root
+    mode: '0644'
+  when: package_updates_strategy != 'disabled'
+
+- name: Timer-Override-Verzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ package_updates_timer_override_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: package_updates_strategy != 'disabled'
+
+- name: Wartungsfenster für dnf-automatic setzen
+  ansible.builtin.template:
+    src: timer-override.conf.j2
+    dest: "{{ package_updates_timer_override_dir }}/override.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  register: package_updates_timer_override
+  when: package_updates_strategy != 'disabled'
+
+- name: systemd-Konfiguration nach Timer-Änderung neu laden
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when:
+    - package_updates_strategy != 'disabled'
+    - package_updates_timer_override.changed
+
+- name: dnf-automatic Timer verwalten
+  ansible.builtin.systemd_service:
+    name: "{{ package_updates_timer_name }}"
+    enabled: "{{ package_updates_automatic_enabled }}"
+    state: "{{ 'started' if package_updates_automatic_enabled else 'stopped' }}"
+  when: package_updates_strategy != 'disabled'
+
+- name: Installierte Pakete für deaktivierte Update-Strategie erfassen
+  ansible.builtin.package_facts:
+    manager: auto
+  when: package_updates_strategy == 'disabled'
+
+- name: Vorhandenen Update-Timer bei deaktivierter Strategie stoppen
+  ansible.builtin.systemd_service:
+    name: "{{ package_updates_timer_name }}"
+    enabled: false
+    state: stopped
+  when:
+    - package_updates_strategy == 'disabled'
+    - "'dnf-automatic' in ansible_facts.packages"
+
+- name: Sicherheitsupdates beim Bootstrap anwenden
+  ansible.builtin.dnf:
+    name: '*'
+    state: latest
+    security: true
+    update_only: true
+  when:
+    - package_updates_apply_on_bootstrap | bool
+    - package_updates_strategy == 'security'
+
+- name: Alle verfügbaren Updates beim Bootstrap anwenden
+  ansible.builtin.dnf:
+    name: '*'
+    state: latest
+    update_only: true
+  when:
+    - package_updates_apply_on_bootstrap | bool
+    - package_updates_strategy == 'all'
+
+- name: Neustartbedarf prüfen
+  ansible.builtin.command:
+    cmd: dnf needs-restarting -r
+  register: package_updates_reboot_check
+  changed_when: false
+  failed_when: package_updates_reboot_check.rc not in [0, 1]
+  when:
+    - package_updates_strategy != 'disabled'
+    - package_updates_apply_on_bootstrap | bool
+
+- name: Neustartbedarf speichern
+  ansible.builtin.set_fact:
+    package_updates_reboot_required: "{{ package_updates_reboot_check.rc == 1 }}"
+  when:
+    - package_updates_strategy != 'disabled'
+    - package_updates_apply_on_bootstrap | bool
+
+- name: Erforderlichen Neustart kontrolliert ausführen
+  ansible.builtin.reboot:
+    reboot_timeout: "{{ package_updates_reboot_timeout }}"
+    msg: Neustart nach Paket- oder Sicherheitsupdates durch Merchfactory Bootstrap
+  when:
+    - package_updates_reboot_required | default(false) | bool
+    - package_updates_reboot_if_required | bool
+
+- name: Offenen Neustartbedarf melden
+  ansible.builtin.debug:
+    msg: >-
+      Das System benötigt nach den Updates einen Neustart. Automatischer Neustart ist
+      deaktiviert; der Neustart muss innerhalb eines geplanten Wartungsfensters erfolgen.
+  when:
+    - package_updates_reboot_required | default(false) | bool
+    - not package_updates_reboot_if_required | bool
+
+- name: dnf-automatic Timerstatus prüfen
+  ansible.builtin.command:
+    cmd: systemctl is-enabled {{ package_updates_timer_name }}
+  register: package_updates_timer_status
+  changed_when: false
+  when:
+    - package_updates_strategy != 'disabled'
+    - package_updates_automatic_enabled | bool
+
+- name: Aktivierten Update-Timer bestätigen
+  ansible.builtin.assert:
+    that:
+      - package_updates_timer_status.stdout | trim == 'enabled'
+    fail_msg: Der automatische Update-Timer ist nicht aktiviert.
+  when:
+    - package_updates_strategy != 'disabled'
+    - package_updates_automatic_enabled | bool

@@ -1,0 +1,17 @@
+---
+system_logging_journald_dropin_dir: /etc/systemd/journald.conf.d
+system_logging_journald_config_path: "{{ system_logging_journald_dropin_dir }}/60-merchfactory-retention.conf"
+system_logging_persistent_dir: /var/log/journal
+
+system_logging_storage: persistent
+system_logging_compress: true
+system_logging_system_max_use: 512M
+system_logging_system_keep_free: 1G
+system_logging_system_max_file_size: 64M
+system_logging_runtime_max_use: 64M
+system_logging_runtime_keep_free: 128M
+system_logging_runtime_max_file_size: 16M
+system_logging_max_retention_sec: 30day
+system_logging_max_file_sec: 1day
+system_logging_rate_limit_interval_sec: 30s
+system_logging_rate_limit_burst: 10000

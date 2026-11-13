@@ -1,0 +1,37 @@
+---
+docker_repository_name: docker-ce-stable
+docker_repository_description: Docker CE Stable - x86_64
+docker_repository_baseurl: https://download.docker.com/linux/centos/9/x86_64/stable
+docker_repository_gpgkey: https://download.docker.com/linux/centos/gpg
+
+docker_package_versions:
+  - docker-ce-29.7.2-1.el9
+  - docker-ce-cli-29.7.2-1.el9
+  - containerd.io-2.3.3-1.el9
+  - docker-buildx-plugin-0.36.1-1.el9
+  - docker-compose-plugin-5.4.0-1.el9
+
+docker_package_update_policy: pinned
+
+docker_service_name: docker
+docker_config_dir: /etc/docker
+docker_daemon_config_path: /etc/docker/daemon.json
+docker_data_root: /var/lib/docker
+docker_log_driver: local
+docker_log_max_size: 20m
+docker_log_max_files: 5
+docker_log_compress: true
+docker_live_restore: true
+docker_userland_proxy: false
+docker_no_new_privileges: true
+
+docker_conflicting_packages:
+  - docker
+  - docker-client
+  - docker-client-latest
+  - docker-common
+  - docker-latest
+  - docker-latest-logrotate
+  - docker-logrotate
+  - docker-engine
+  - podman-docker

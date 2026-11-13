@@ -1,0 +1,32 @@
+---
+firewall_zone: public
+firewall_interface: ""
+firewall_default_target: DROP
+firewall_manage_zone_target: true
+firewall_enable_masquerade: false
+
+firewall_ssh_port: "{{ ssh_hardening_port | default(22) }}"
+firewall_require_ssh_access: true
+
+firewall_allowed_services:
+  - dhcpv6-client
+firewall_manage_services_exclusively: true
+firewall_manage_ports_exclusively: true
+firewall_allowed_ports: []
+firewall_allowed_source_ports: []
+firewall_rich_rules: []
+
+firewall_role_profiles:
+  base: []
+  load_balancer:
+    - 80/tcp
+    - 443/tcp
+  app: []
+  database: []
+  monitoring: []
+  backup: []
+
+firewall_server_roles:
+  - base
+
+firewall_runtime_reload: true

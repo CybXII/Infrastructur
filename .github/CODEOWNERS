@@ -1,0 +1,32 @@
+# Standardverantwortung für das gesamte Repository
+* @CybXII
+
+# GitHub-Governance und Automatisierung
+/.github/ @CybXII
+
+# Sicherheitsrelevante Bereiche
+/docs/04-security.md @CybXII
+/tests/security/ @CybXII
+/bootstrap/ @CybXII
+/configuration/ @CybXII
+
+# Deployment und Laufzeit
+/deployment/ @CybXII
+/templates/compose/ @CybXII
+/templates/systemd/ @CybXII
+
+# Backup, Restore und Disaster Recovery
+/backup/ @CybXII
+/restore/ @CybXII
+/tests/backup/ @CybXII
+/tests/restore/ @CybXII
+/docs/07-disaster-recovery.md @CybXII
+
+# Monitoring, Logging und Alerting
+/monitoring/ @CybXII
+
+# Architektur und verbindliche Projektdokumentation
+/docs/01-architecture.md @CybXII
+/docs/02-adr/ @CybXII
+/docs/09-repository-structure.md @CybXII
+/docs/10-development-guidelines.md @CybXII

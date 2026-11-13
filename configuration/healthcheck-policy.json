@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "liveness": {
+    "transport": "docker-healthcheck",
+    "interval": "30s",
+    "timeout": "5s",
+    "retries": 3,
+    "default_start_period": "10s",
+    "max_start_period": "120s",
+    "scope": "local-process-and-local-runtime-only",
+    "automatic_restart_on_unhealthy": false
+  },
+  "readiness": {
+    "transport": "traefik-active-healthcheck",
+    "interval": "10s",
+    "timeout": "3s",
+    "expected_status": 200,
+    "scope": "request-serving-capability-and-required-request-path-dependencies"
+  },
+  "external_probe": {
+    "interval": "30s",
+    "timeout": "5s",
+    "expected_status": 200,
+    "warning_after_failures": 2,
+    "critical_after_failures": 5
+  }
+}

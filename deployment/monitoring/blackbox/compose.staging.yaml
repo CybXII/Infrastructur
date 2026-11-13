@@ -1,0 +1,50 @@
+# Blackbox DEVELOPMENT staging only: no public egress, no live targets.
+# Production/external probes require separate security acceptance.
+services:
+  blackbox-exporter:
+    image: ${BLACKBOX_IMAGE_REFERENCE:-docker.io/prom/blackbox-exporter@sha256:9613f2884689b6fad9f1939f6a3b0388c93a022cfaededb19545b329b5c83dea}
+    restart: unless-stopped
+    labels:
+      com.merchfactory.managed: "true"
+      com.merchfactory.cleanup.protect: "false"
+    init: true
+    user: "65534:65534"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: ${BLACKBOX_CPU_LIMIT:-0.25}
+    cpu_shares: ${BLACKBOX_CPU_SHARES:-128}
+    mem_limit: ${BLACKBOX_MEMORY_LIMIT:-128m}
+    mem_reservation: ${BLACKBOX_MEMORY_RESERVATION:-64m}
+    pids_limit: ${BLACKBOX_PIDS_LIMIT:-128}
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
+      - --web.listen-address=0.0.0.0:9115
+    volumes:
+      - type: bind
+        source: ../../../monitoring/blackbox/blackbox.yml
+        target: /etc/blackbox_exporter/config.yml
+        read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null http://127.0.0.1:9115/-/healthy
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    stop_grace_period: 30s
+    networks:
+      monitoring:
+        ipv4_address: 172.30.250.40
+        aliases:
+          - blackbox-exporter
+
+networks:
+  monitoring:
+    external: true
+    name: ${MERCHFACTORY_MONITORING_NETWORK:-merchfactory-monitoring}

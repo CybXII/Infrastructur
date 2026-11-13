@@ -1,0 +1,79 @@
+name: Apply Development cAdvisor Memory Limit
+
+on:
+  push:
+    branches:
+      - development
+    paths:
+      - 'ansible/roles/cadvisor/defaults/main.yml'
+      - 'ansible/playbooks/cadvisor-resources.yml'
+      - '.github/workflows/deploy-development-cadvisor.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: development-cadvisor-resource-limits
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: Update only cAdvisor on the development VPS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Ansible and verify resource contract
+        run: |
+          set -Eeuo pipefail
+          python3 -m pip install 'ansible-core>=2.17,<2.19'
+          ansible-galaxy collection install -r ansible/requirements.yml
+          python3 -m unittest discover -s tests/unit -p test_cadvisor_policy.py
+
+      - name: Set up verified SSH credentials
+        env:
+          HOST: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_HOST }}
+          KEY: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_SSH_KEY }}
+          HOST_KEYS: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$HOST" && test -n "$KEY" && test -n "$HOST_KEYS"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/cadvisor-key"
+          chmod 0600 "$RUNNER_TEMP/cadvisor-key"
+          printf '%s\n' "$HOST_KEYS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/cadvisor-key" > "$RUNNER_TEMP/cadvisor.pub"
+
+      - name: Build single-host inventory and validate playbook
+        env:
+          HOST: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_HOST }}
+          ANSIBLE_CONFIG: ${{ github.workspace }}/ansible/ansible.cfg
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/create-bootstrap-test-inventories.py \
+            --host "$HOST" \
+            --initial-user bootstrap --managed-user bootstrap \
+            --public-key-file "$RUNNER_TEMP/cadvisor.pub" \
+            --initial-output "$RUNNER_TEMP/cadvisor-initial-unused.json" \
+            --managed-output "$RUNNER_TEMP/cadvisor-inventory.json"
+          ansible-playbook -i "$RUNNER_TEMP/cadvisor-inventory.json" \
+            ansible/playbooks/cadvisor-resources.yml --syntax-check
+
+      - name: Apply ONLY the cAdvisor systemd unit and verify 1028 MiB
+        env:
+          ANSIBLE_CONFIG: ${{ github.workspace }}/ansible/ansible.cfg
+          ANSIBLE_PRIVATE_KEY_FILE: ${{ runner.temp }}/cadvisor-key
+          ANSIBLE_HOST_KEY_CHECKING: 'True'
+        run: |
+          set -Eeuo pipefail
+          ansible-playbook -i "$RUNNER_TEMP/cadvisor-inventory.json" \
+            ansible/playbooks/cadvisor-resources.yml --limit bootstrap-test
+
+      - name: Remove ephemeral SSH credentials
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/cadvisor-key" "$RUNNER_TEMP/cadvisor.pub" \
+            "$RUNNER_TEMP/cadvisor-initial-unused.json" "$RUNNER_TEMP/cadvisor-inventory.json"

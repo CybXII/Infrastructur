@@ -1,0 +1,22 @@
+---
+ssh_hardening_port: 22
+ssh_hardening_permit_root_login: 'no'
+ssh_hardening_password_authentication: false
+ssh_hardening_kbd_interactive_authentication: false
+ssh_hardening_pubkey_authentication: true
+ssh_hardening_empty_passwords: false
+ssh_hardening_x11_forwarding: false
+ssh_hardening_allow_tcp_forwarding: false
+ssh_hardening_allow_agent_forwarding: false
+ssh_hardening_max_auth_tries: 3
+ssh_hardening_login_grace_time: 30
+ssh_hardening_client_alive_interval: 300
+ssh_hardening_client_alive_count_max: 2
+ssh_hardening_use_dns: false
+ssh_hardening_allow_users: []
+ssh_hardening_allow_groups: []
+ssh_hardening_dropin_dir: /etc/ssh/sshd_config.d
+ssh_hardening_dropin_file: /etc/ssh/sshd_config.d/00-merchfactory-hardening.conf
+ssh_hardening_legacy_dropin_files:
+  - /etc/ssh/sshd_config.d/60-merchfactory-hardening.conf
+ssh_hardening_validate_command: /usr/sbin/sshd -t -f %s

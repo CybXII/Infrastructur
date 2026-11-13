@@ -1,0 +1,11 @@
+# Managed by Ansible - do not edit manually
+{% for source in system_ntp_sources %}
+{{ source }}
+{% endfor %}
+
+driftfile /var/lib/chrony/drift
+makestep {{ system_ntp_makestep_threshold }} {{ system_ntp_makestep_updates }}
+rtcsync
+keyfile /etc/chrony.keys
+leapsectz right/UTC
+logdir /var/log/chrony

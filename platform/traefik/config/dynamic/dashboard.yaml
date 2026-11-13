@@ -1,0 +1,17 @@
+http:
+  routers:
+    dashboard:
+      rule: "PathPrefix(`/api`) || PathPrefix(`/dashboard`)"
+      entryPoints:
+        - admin
+      service: api@internal
+      middlewares:
+        - dashboard-security
+
+  middlewares:
+    dashboard-security:
+      headers:
+        contentTypeNosniff: true
+        frameDeny: true
+        customResponseHeaders:
+          X-Robots-Tag: "noindex, nofollow"

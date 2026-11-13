@@ -1,0 +1,20 @@
+http:
+  routers:
+    reference-http-service:
+      rule: "Host(`reference-service.example.invalid`)"
+      entryPoints:
+        - websecure
+      service: reference-http-service
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    reference-http-service:
+      loadBalancer:
+        healthCheck:
+          path: /health
+          interval: "10s"
+          timeout: "3s"
+          status: 200
+        servers:
+          - url: "http://reference-http-service:8080"

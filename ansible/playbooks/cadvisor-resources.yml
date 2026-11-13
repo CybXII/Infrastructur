@@ -1,0 +1,81 @@
+---
+# Apply ONLY the cAdvisor systemd unit. No package, Docker, network or firewall changes.
+- name: Apply development cAdvisor resource limit without full host bootstrap
+  hosts: bootstrap_targets
+  gather_facts: false
+  become: true
+  vars_files:
+    - ../roles/cadvisor/defaults/main.yml
+
+  tasks:
+    - name: Validate the approved memory ceiling and managed service
+      ansible.builtin.assert:
+        that:
+          - cadvisor_memory_max == '1028M'
+          - cadvisor_service_name == 'cadvisor.service'
+
+    - name: Confirm cAdvisor is already provisioned
+      ansible.builtin.stat:
+        path: "{{ cadvisor_service_path }}"
+      register: cadvisor_unit
+
+    - name: Refuse to install an absent service
+      ansible.builtin.assert:
+        that:
+          - cadvisor_unit.stat.exists
+          - cadvisor_unit.stat.isreg | default(false)
+
+    - name: Apply only the version-controlled cAdvisor systemd unit
+      ansible.builtin.template:
+        src: ../roles/cadvisor/templates/cadvisor.service.j2
+        dest: "{{ cadvisor_service_path }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: cadvisor_unit_update
+
+    - name: Reload systemd if cAdvisor unit changed
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: cadvisor_unit_update.changed
+
+    - name: Restart only cAdvisor if its unit changed
+      ansible.builtin.systemd_service:
+        name: "{{ cadvisor_service_name }}"
+        state: restarted
+      when: cadvisor_unit_update.changed
+
+    - name: Read active cAdvisor memory ceiling in bytes
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - show
+          - "{{ cadvisor_service_name }}"
+          - --property=MemoryMax
+          - --value
+      register: cadvisor_memory_effective
+      changed_when: false
+
+    - name: Verify exact 1028 MiB effective memory ceiling
+      ansible.builtin.assert:
+        that:
+          - (cadvisor_memory_effective.stdout | trim | int) == (1028 * 1024 * 1024)
+
+    - name: Confirm metrics endpoint is responsive inside the monitoring network
+      ansible.builtin.uri:
+        url: "http://{{ cadvisor_listen_address }}/metrics"
+        method: GET
+        status_code: 200
+        use_proxy: false
+      register: cadvisor_metrics
+      retries: 15
+      delay: 2
+      until: cadvisor_metrics.status | default(0) == 200
+      changed_when: false
+
+    - name: Confirm cAdvisor is active
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "{{ cadvisor_service_name }}"]
+      register: cadvisor_status
+      changed_when: false
+      failed_when: cadvisor_status.stdout | trim != 'active'

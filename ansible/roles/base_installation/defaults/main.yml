@@ -1,0 +1,22 @@
+---
+base_installation_packages:
+  - bash-completion
+  - ca-certificates
+  - curl
+  - dnf-plugins-core
+  - firewalld
+  - git
+  - jq
+  - policycoreutils-python-utils
+  - python3
+  - python3-libselinux
+  - rsync
+  - tar
+  - unzip
+  - vim-minimal
+  - wget
+
+base_installation_enable_crb: true
+base_installation_update_cache: true
+base_installation_install_epel: false
+base_installation_epel_package: epel-release

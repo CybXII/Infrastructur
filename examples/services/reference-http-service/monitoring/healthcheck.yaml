@@ -1,0 +1,28 @@
+version: 1
+service: reference-http-service
+
+liveness:
+  transport: docker-healthcheck
+  command: /whoami --help
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 5s
+  scope: local-process-only
+  automatic_restart_on_unhealthy: false
+
+readiness:
+  transport: traefik-active-healthcheck
+  path: /health
+  interval: 10s
+  timeout: 3s
+  expected_status: 200
+
+external_probe:
+  type: https
+  url: https://reference-service.example.invalid/health
+  interval: 30s
+  timeout: 5s
+  expected_status: 200
+  warning_after_failures: 2
+  critical_after_failures: 5

@@ -1,0 +1,20 @@
+---
+fail2ban_backend: systemd
+fail2ban_banaction: firewallcmd-rich-rules
+fail2ban_ignoreip:
+  - 127.0.0.1/8
+  - ::1
+
+fail2ban_sshd_enabled: true
+fail2ban_sshd_port: "{{ ssh_hardening_port | default(22) }}"
+fail2ban_sshd_maxretry: 10
+fail2ban_sshd_findtime: 10m
+fail2ban_sshd_bantime: 1h
+
+fail2ban_recidive_enabled: true
+fail2ban_recidive_maxretry: 5
+fail2ban_recidive_findtime: 1d
+fail2ban_recidive_bantime: 1w
+
+fail2ban_logtarget: /var/log/fail2ban.log
+fail2ban_loglevel: INFO

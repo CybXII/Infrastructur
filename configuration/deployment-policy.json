@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "state": {
+    "release_env_variable": "SERVICE_IMAGE_REFERENCE",
+    "protected_previous_versions": 2,
+    "atomic_state_writes": true,
+    "single_deployment_lock": true,
+    "service_specific_release_env_variables_allowed": true
+  },
+  "preflight": {
+    "require_digest": true,
+    "require_allowlisted_registry": true,
+    "require_compose_config_validation": true,
+    "require_target_image_pull": true,
+    "require_verification_probe": true
+  },
+  "data_changes": {
+    "none": {
+      "backup_required": false,
+      "automatic_artifact_rollback_allowed": true
+    },
+    "compatible": {
+      "backup_required": true,
+      "automatic_artifact_rollback_allowed": true
+    },
+    "destructive": {
+      "backup_required": true,
+      "automatic_artifact_rollback_allowed": false,
+      "restore_plan_required": true
+    }
+  },
+  "approvals": {
+    "development": {
+      "approval_reference_required": false
+    },
+    "staging": {
+      "approval_reference_required": true
+    },
+    "production": {
+      "approval_reference_required": true
+    }
+  },
+  "verification": {
+    "attempts": 30,
+    "interval_seconds": 1,
+    "expected_http_status": 200
+  },
+  "failure": {
+    "verification_failure": "rollback-when-safe",
+    "rollback_verification_required": true,
+    "failed_deployment_exit_code_nonzero": true
+  }
+}

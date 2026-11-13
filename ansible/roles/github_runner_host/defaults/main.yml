@@ -1,0 +1,37 @@
+---
+# Deployment des separaten GitHub-Runners-Repositories.
+github_runner_repo_owner: CybXII
+github_runner_repo_name: GitHub-Runners
+github_runner_repo_ref: main
+github_runner_install_dir: /opt/merchfactory/github-runners
+
+# Multi-Scope Runner-Plattform.
+# Organisationen koennen organisationsweit angebunden werden. Private
+# Repositories unter einem persoenlichen Account muessen als eigener
+# Repository-Scope aufgefuehrt werden.
+github_runner_config_urls:
+  - https://github.com/Merchfactory
+  - https://github.com/CybXII/n8n-deployment
+
+# Universelles ephemeres Scale Set.
+github_runner_scale_set_name: ephemeral-linux
+github_runner_labels: ephemeral-linux
+github_runner_group: Default
+github_runner_min_runners: 0
+
+# Globales Maximum ueber alle konfigurierten GitHub-Scopes zusammen.
+github_runner_max_runners: 2
+
+# Gepinnte Runtime-/Build-Basis passend zum GitHub-Runners-Repository.
+github_runner_controller_image: github-runner-platform-controller:0.4.1
+github_runner_base_image: ghcr.io/actions/actions-runner:2.336.0
+github_runner_image: github-actions-runner-universal:2.336.0
+github_runner_dind_image: docker:29.8.1-dind
+github_runner_compose_version: v5.5.1
+github_runner_log_level: info
+github_runner_log_format: text
+
+# Ausschliesslich zur Laufzeit setzen, z. B. als GitHub Repository Secret.
+# Der Token benoetigt Zugriff auf das private Runner-Repository und alle
+# konfigurierten Runner-/Scale-Set-Ziele.
+github_runner_token: "{{ lookup('ansible.builtin.env', 'RUNNER_TOKEN') }}"

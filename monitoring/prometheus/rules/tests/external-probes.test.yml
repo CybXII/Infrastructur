@@ -1,0 +1,106 @@
+rule_files:
+  - ../external-probes.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="blackbox-http",instance="https://n8n.luft-alex.de"}'
+        values: '1+0x20'
+      - series: 'probe_success{job="blackbox-http",instance="https://n8n.luft-alex.de"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: PublicEndpointHTTPUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              instance: https://n8n.luft-alex.de
+              job: blackbox-http
+            exp_annotations:
+              summary: Public HTTPS endpoint unavailable
+              description: 'HTTP probe failed for https://n8n.luft-alex.de.'
+              runbook: docs/74-external-probes-design.md
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="blackbox-http",instance="https://n8n.luft-alex.de"}'
+        values: '0+0x20'
+      - series: 'probe_success{job="blackbox-http",instance="https://n8n.luft-alex.de"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: PublicEndpointHTTPUnavailable
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: BlackboxExporterUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              instance: https://n8n.luft-alex.de
+              job: blackbox-http
+            exp_annotations:
+              summary: Blackbox exporter scrape failed
+              description: 'Prometheus cannot scrape blackbox probe https://n8n.luft-alex.de (blackbox-http).'
+              runbook: docs/74-external-probes-design.md
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="blackbox-dns",instance="luft-alex.de"}'
+        values: '1+0x20'
+      - series: 'probe_success{job="blackbox-dns",instance="luft-alex.de"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: PublicEndpointDNSFailure
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              instance: luft-alex.de
+              job: blackbox-dns
+            exp_annotations:
+              summary: DNS lookup failed
+              description: 'DNS probe failed for luft-alex.de.'
+              runbook: docs/74-external-probes-design.md
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="blackbox-tls",instance="n8n.luft-alex.de:443"}'
+        values: '1+0x20'
+      - series: 'probe_success{job="blackbox-tls",instance="n8n.luft-alex.de:443"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: PublicEndpointTLSFailure
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              instance: n8n.luft-alex.de:443
+              job: blackbox-tls
+            exp_annotations:
+              summary: TLS handshake failed
+              description: 'TLS probe failed for n8n.luft-alex.de:443.'
+              runbook: docs/74-external-probes-design.md
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="blackbox-exporter",instance="blackbox-exporter:9115"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: BlackboxExporterUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              instance: blackbox-exporter:9115
+              job: blackbox-exporter
+            exp_annotations:
+              summary: Blackbox exporter scrape failed
+              description: 'Prometheus cannot scrape blackbox probe blackbox-exporter:9115 (blackbox-exporter).'
+              runbook: docs/74-external-probes-design.md

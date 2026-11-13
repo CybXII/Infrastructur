@@ -1,0 +1,42 @@
+version: 1
+service: prometheus
+
+objects:
+  - id: tsdb
+    class: B
+    storage:
+      type: bind
+      source: /srv/merchfactory/persistent/monitoring/prometheus
+      target: /prometheus
+    ownership:
+      uid: 65534
+      gid: 65534
+      directory_mode: '0750'
+    backup:
+      required: false
+      reason: historical-metrics-are-operational-not-source-of-truth
+    restore:
+      method: recreate-empty-tsdb-and-resume-scraping
+      target_rto: operational
+    review:
+      retention_capacity_issue: 96
+      backup_strategy_issue: future-v0.7
+
+  - id: configuration
+    class: C
+    storage:
+      type: git
+      paths:
+        - monitoring/prometheus/prometheus.yml
+        - monitoring/prometheus/rules/
+        - deployment/monitoring/prometheus/compose.yaml
+    backup:
+      required: false
+      reason: reproducible-from-git
+    restore:
+      method: redeploy-reviewed-repository-state
+
+notes:
+  - Prometheus TSDB ist betriebsrelevanter Zustand, aber keine geschäftliche Primärdatenquelle.
+  - Der Verlust historischer Metriken darf den Wiederanlauf nicht blockieren.
+  - Eine spätere Backup-Entscheidung darf die Admin-API nicht stillschweigend aktivieren.

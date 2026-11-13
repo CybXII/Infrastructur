@@ -1,0 +1,132 @@
+# {{SERVICE_NAME}}
+
+## Zweck
+
+CHANGE_ME – fachlichen Zweck des Dienstes beschreiben.
+
+## Verantwortlichkeit
+
+- Owner: `{{OWNER}}`
+- Eskalation: `{{ESCALATION_CONTACT}}`
+- Öffentlicher Hostname: `{{PUBLIC_HOSTNAME}}`
+- Container-Port: `{{CONTAINER_PORT}}`
+
+## Struktur
+
+```text
+configuration/
+  service.yaml
+  secrets.yaml
+deployment/
+  compose.yaml
+routing/
+  route.yaml
+monitoring/
+  healthcheck.yaml
+logging/
+  policy.yaml
+backup/
+  policy.yaml
+operations/
+  runbook.md
+README.md
+```
+
+## Voraussetzungen
+
+- Image entspricht `configuration/container-image-policy.json`.
+- Image ist per SHA-256-Digest gepinnt.
+- First-Party-Provenance ist verifiziert.
+- Shared Edge Network ist vorbereitet.
+- Persistenter Hostpfad ist mit korrekter UID/GID vorbereitet.
+- benötigte Runtime-Secrets liegen unter `/srv/merchfactory/secrets/{{SERVICE_NAME}}/`.
+- Traefik lädt die Routing-Datei kontrolliert in seine dynamische Konfiguration.
+
+## Persistenz
+
+```text
+/srv/merchfactory/persistent/{{SERVICE_NAME}}/data
+  -> /var/lib/{{SERVICE_NAME}}
+```
+
+Erwartete Ownership:
+
+```text
+UID={{SERVICE_UID}}
+GID={{SERVICE_GID}}
+```
+
+## Secret-Injection
+
+```text
+/srv/merchfactory/secrets/{{SERVICE_NAME}}/primary-secret
+  -> /run/secrets/primary-secret
+```
+
+Der Wert selbst wird niemals versioniert.
+
+## Routing
+
+Traefik-Router:
+
+```text
+Host(`{{PUBLIC_HOSTNAME}}`) -> {{SERVICE_NAME}}:{{CONTAINER_PORT}}
+```
+
+TLS wird über den Resolver `letsencrypt` terminiert.
+
+## Monitoring und Logging
+
+`monitoring/healthcheck.yaml` trennt drei Signale:
+
+- Liveness über Docker Compose,
+- Readiness über Traefik auf `{{READINESS_PATH}}`,
+- externen HTTPS-Probe über `https://{{PUBLIC_HOSTNAME}}{{READINESS_PATH}}`.
+
+Ein Docker-`unhealthy`-Status löst keinen automatischen Restart aus. Readiness-Fehler nehmen das Backend aus der Traefik-Rotation. Details stehen in `docs/54-healthcheck-standards.md`.
+
+Logging erfolgt über stdout/stderr. Der Service erbt den Docker-`local`-Driver mit 20 MiB × 5 Dateien und Kompression; ein servicebezogener `logging:`-Override ist in der Standardbaseline nicht zulässig. Die zentrale Standard-Retention beträgt 30 Tage, Security-/Auditklassen werden länger aufbewahrt. Details stehen in `docs/56-log-rotation.md`.
+
+## Ressourcen
+
+Standardprofil:
+
+```text
+SERVICE_CPU_LIMIT=1.0
+SERVICE_CPU_SHARES=512
+SERVICE_MEMORY_LIMIT=512m
+SERVICE_MEMORY_RESERVATION=256m
+SERVICE_PIDS_LIMIT=256
+```
+
+Die Werte sind sichere Ausgangswerte, keine universelle Produktionsdimensionierung. Änderungen müssen anhand des tatsächlichen Workloads und des Host-Headrooms bewertet werden. `oom_kill_disable` bleibt verboten.
+
+Details stehen in `docs/55-container-resource-limits.md`.
+
+## Backup und Restore
+
+Die servicebezogene Policy liegt unter `backup/policy.yaml`. Platzhalter wie `CHANGE_ME` müssen vor produktiver Nutzung ersetzt werden.
+
+## Update und Rollback
+
+Das Compose-Manifest verwendet `SERVICE_IMAGE_REFERENCE` als kontrollierbaren Laufzeit-Digest und fällt ohne Release-State auf den beim Rendering gepinnten Basisdigest zurück.
+
+Verwaltete Updates und Rollbacks erfolgen über `deployment/service-release.py`. Der Controller speichert aktuellen und vorherige bekannte gute Digests, erzwingt Freigaben/Backup-Referenzen und verifiziert sowohl Update als auch Rollback.
+
+Details stehen in `operations/runbook.md` und `docs/57-update-rollback.md`.
+
+## Betrieb
+
+Start, Diagnose und Störungsbehandlung sind in `operations/runbook.md` beschrieben.
+
+## Validierung
+
+Vor Merge bzw. Deployment mindestens:
+
+```bash
+docker compose -f deployment/compose.yaml config
+python3 scripts/validate-compose-standards.py deployment/compose.yaml
+python3 scripts/validate-image-policy.py deployment/compose.yaml
+```
+
+Zusätzlich müssen Routing, Secrets, Persistenz, Backup und servicebezogene Smoke Tests geprüft werden.

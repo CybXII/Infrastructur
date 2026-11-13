@@ -1,0 +1,52 @@
+services:
+  {{SERVICE_NAME}}:
+    image: ${SERVICE_IMAGE_REFERENCE:-{{IMAGE_REFERENCE}}}
+    restart: unless-stopped
+    labels:
+      com.merchfactory.managed: "true"
+      com.merchfactory.cleanup.protect: "false"
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: ${SERVICE_CPU_LIMIT:-1.0}
+    cpu_shares: ${SERVICE_CPU_SHARES:-512}
+    mem_limit: ${SERVICE_MEMORY_LIMIT:-512m}
+    mem_reservation: ${SERVICE_MEMORY_RESERVATION:-256m}
+    pids_limit: ${SERVICE_PIDS_LIMIT:-256}
+    volumes:
+      - type: bind
+        source: ${SERVICE_DATA_DIR:-/srv/merchfactory/persistent/{{SERVICE_NAME}}/data}
+        target: /var/lib/{{SERVICE_NAME}}
+    tmpfs:
+      - /tmp
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      PRIMARY_SECRET_FILE: /run/secrets/primary-secret
+    secrets:
+      - source: primary-secret
+        target: primary-secret
+    healthcheck:
+      test: ["CMD-SHELL", "{{HEALTHCHECK_COMMAND}}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 30s
+    networks:
+      - edge
+      - app
+
+secrets:
+  primary-secret:
+    file: ${PRIMARY_SECRET_FILE:-/srv/merchfactory/secrets/{{SERVICE_NAME}}/primary-secret}
+
+networks:
+  edge:
+    external: true
+    name: ${MERCHFACTORY_EDGE_NETWORK:-merchfactory-edge}
+
+  app:
+    internal: true

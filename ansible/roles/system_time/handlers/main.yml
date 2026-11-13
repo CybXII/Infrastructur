@@ -1,0 +1,5 @@
+---
+- name: Chronyd neu starten
+  ansible.builtin.systemd_service:
+    name: "{{ system_ntp_service }}"
+    state: restarted

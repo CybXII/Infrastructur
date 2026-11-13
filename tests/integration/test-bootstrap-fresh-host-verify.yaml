@@ -1,0 +1,411 @@
+---
+- name: Fresh-Host-Bootstrap verifizieren
+  hosts: bootstrap_targets
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: cAdvisor-Profildefaults für Verifikation laden
+      ansible.builtin.include_vars:
+        file: ../../ansible/roles/cadvisor/defaults/main.yml
+        name: fresh_host_cadvisor_defaults
+
+    - name: Passwortloses sudo des verwalteten Benutzers prüfen
+      ansible.builtin.command:
+        cmd: sudo -n true
+      become: false
+      changed_when: false
+
+    - name: Aktiven Verbindungsbenutzer ermitteln
+      ansible.builtin.command:
+        cmd: id -un
+      become: false
+      register: fresh_host_verification_connection_user
+      changed_when: false
+
+    - name: Verwalteten Verbindungsbenutzer bestätigen
+      ansible.builtin.assert:
+        that:
+          - >-
+            fresh_host_verification_connection_user.stdout | trim
+            == bootstrap_managed_user
+        fail_msg: >-
+          authorization_error: Nachprüfung läuft nicht als erwarteter
+          verwalteter Benutzer.
+
+    - name: Kritische Dienste prüfen
+      ansible.builtin.command:
+        cmd: systemctl is-active {{ item }}
+      loop:
+        - sshd
+        - firewalld
+        - fail2ban
+        - chronyd
+        - dnf-automatic.timer
+        - docker
+        - node_exporter
+        - cadvisor
+        - alloy
+      changed_when: false
+
+    - name: Effektive SSH-Konfiguration lesen
+      ansible.builtin.command:
+        cmd: /usr/sbin/sshd -T
+      register: fresh_host_verification_sshd
+      changed_when: false
+
+    - name: SSH-Hardening bestätigen
+      ansible.builtin.assert:
+        that:
+          - item in fresh_host_verification_sshd.stdout_lines
+        fail_msg: >-
+          validation_error: Effektive SSH-Konfiguration enthält die erwartete
+          Direktive {{ item }} nicht.
+      loop:
+        - permitrootlogin no
+        - passwordauthentication no
+        - kbdinteractiveauthentication no
+        - pubkeyauthentication yes
+        - x11forwarding no
+        - allowtcpforwarding no
+        - allowagentforwarding no
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Effektive AllowUsers-Einträge normalisiert lesen
+      ansible.builtin.shell: |
+        set -o pipefail
+        /usr/sbin/sshd -T |
+          awk '$1 == "allowusers" { for (i = 2; i <= NF; i++) print $i }' |
+          sort -u
+      args:
+        executable: /bin/bash
+      register: fresh_host_verification_allow_users
+      changed_when: false
+
+    - name: Effektive AllowUsers-Liste bestätigen
+      ansible.builtin.assert:
+        that:
+          - >-
+            (fresh_host_verification_allow_users.stdout_lines | sort)
+            ==
+            (bootstrap_expected_ssh_users | unique | sort)
+        fail_msg: >-
+          validation_error: Effektive SSH-AllowUsers-Liste weicht vom
+          Sollzustand ab. Ist={{
+          fresh_host_verification_allow_users.stdout_lines | sort }},
+          Soll={{ bootstrap_expected_ssh_users | unique | sort }}.
+
+    - name: SELinux-Modus lesen
+      ansible.builtin.command:
+        cmd: getenforce
+      register: fresh_host_verification_selinux
+      changed_when: false
+
+    - name: SELinux Enforcing bestätigen
+      ansible.builtin.assert:
+        that:
+          - fresh_host_verification_selinux.stdout | trim == 'Enforcing'
+        fail_msg: >-
+          validation_error: SELinux ist nicht im Enforcing-Modus.
+
+    - name: Permanentes Firewall-Zonenziel lesen
+      ansible.builtin.command:
+        cmd: >-
+          firewall-cmd --permanent
+          --zone={{ bootstrap_expected_firewall_zone }} --get-target
+      register: fresh_host_verification_firewall_target
+      changed_when: false
+
+    - name: Restriktives Firewall-Zonenziel bestätigen
+      ansible.builtin.assert:
+        that:
+          - fresh_host_verification_firewall_target.stdout | trim == 'DROP'
+        fail_msg: >-
+          validation_error: Permanentes Firewall-Zonenziel ist nicht DROP.
+
+    - name: Permanente Firewall-Ports lesen
+      ansible.builtin.command:
+        cmd: >-
+          firewall-cmd --permanent
+          --zone={{ bootstrap_expected_firewall_zone }} --list-ports
+      register: fresh_host_verification_firewall_ports
+      changed_when: false
+
+    - name: Ausschließlich erwartete Firewall-Ports bestätigen
+      ansible.builtin.assert:
+        that:
+          - >-
+            fresh_host_verification_firewall_ports.stdout.split() | sort
+            == bootstrap_expected_firewall_ports | sort
+        fail_msg: >-
+          validation_error: Permanente Firewall-Ports weichen vom erwarteten
+          Development-Baselinezustand ab.
+          Ist={{ fresh_host_verification_firewall_ports.stdout.split() | sort }},
+          Soll={{ bootstrap_expected_firewall_ports | sort }}.
+
+    - name: Permanente Firewall-Dienste lesen
+      ansible.builtin.command:
+        cmd: >-
+          firewall-cmd --permanent
+          --zone={{ bootstrap_expected_firewall_zone }} --list-services
+      register: fresh_host_verification_firewall_services
+      changed_when: false
+
+    - name: Ausschließlich erwartete Firewall-Dienste bestätigen
+      ansible.builtin.assert:
+        that:
+          - >-
+            fresh_host_verification_firewall_services.stdout.split() | sort
+            == bootstrap_expected_firewall_services | sort
+        fail_msg: >-
+          validation_error: Permanente Firewall-Dienste weichen vom erwarteten
+          Development-Baselinezustand ab.
+
+    - name: Fail2ban SSH-Jail prüfen
+      ansible.builtin.command:
+        cmd: fail2ban-client status sshd
+      changed_when: false
+
+    - name: Fail2ban Recidive-Jail prüfen
+      ansible.builtin.command:
+        cmd: fail2ban-client status recidive
+      changed_when: false
+
+    - name: Zeitsynchronisation prüfen
+      ansible.builtin.command:
+        cmd: chronyc tracking
+      register: fresh_host_verification_chrony
+      changed_when: false
+
+    - name: Synchronisierte Systemzeit bestätigen
+      ansible.builtin.assert:
+        that:
+          - >-
+            'Leap status     : Not synchronised'
+            not in fresh_host_verification_chrony.stdout
+        fail_msg: >-
+          validation_error: Systemzeit ist nicht synchronisiert.
+
+    - name: Standardisierte Storage-Verzeichnisse prüfen
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /srv/merchfactory
+        - /srv/merchfactory/persistent
+        - /srv/merchfactory/shared
+        - /var/lib/merchfactory
+        - /var/tmp/merchfactory
+        - /var/log/merchfactory
+      register: fresh_host_verification_storage
+
+    - name: Vorhandene Storage-Verzeichnisse bestätigen
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isdir
+        fail_msg: >-
+          validation_error: Erwartetes Storage-Verzeichnis fehlt oder ist kein
+          Verzeichnis.
+      loop: "{{ fresh_host_verification_storage.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Runtime-Root prüfen
+      ansible.builtin.stat:
+        path: /var/lib/merchfactory
+      register: fresh_host_verification_runtime_root
+
+    - name: Restriktiven Runtime-Root bestätigen
+      ansible.builtin.assert:
+        that:
+          - fresh_host_verification_runtime_root.stat.exists
+          - fresh_host_verification_runtime_root.stat.isdir
+          - fresh_host_verification_runtime_root.stat.pw_name == 'root'
+          - fresh_host_verification_runtime_root.stat.gr_name == 'merchfactory-runtime'
+          - fresh_host_verification_runtime_root.stat.mode == '0750'
+        fail_msg: >-
+          validation_error: /var/lib/merchfactory entspricht nicht der
+          erwarteten Runtime-Ownership-/Mode-Baseline.
+
+    - name: Docker-Datenverzeichnis prüfen
+      ansible.builtin.stat:
+        path: /var/lib/docker
+      register: fresh_host_verification_docker_data
+
+    - name: Restriktives Docker-Datenverzeichnis bestätigen
+      ansible.builtin.assert:
+        that:
+          - fresh_host_verification_docker_data.stat.exists
+          - fresh_host_verification_docker_data.stat.isdir
+          - fresh_host_verification_docker_data.stat.pw_name == 'root'
+          - fresh_host_verification_docker_data.stat.gr_name == 'root'
+          - fresh_host_verification_docker_data.stat.mode == '0710'
+        fail_msg: >-
+          validation_error: /var/lib/docker entspricht nicht dem erwarteten
+          Eigentümer- oder Berechtigungszustand.
+
+    - name: Docker-Daemon prüfen
+      ansible.builtin.command:
+        cmd: docker info
+      changed_when: false
+
+    - name: Docker-Compose prüfen
+      ansible.builtin.command:
+        cmd: docker compose version
+      changed_when: false
+
+    - name: Node-Exporter-Listener lesen
+      ansible.builtin.command:
+        argv:
+          - ss
+          - -ltnH
+          - sport = :9100
+      register: fresh_host_verification_node_exporter_listener
+      changed_when: false
+
+    - name: Node Exporter ausschließlich am Monitoring-Gateway bestätigen
+      ansible.builtin.assert:
+        that:
+          - "'172.30.250.1:9100' in fresh_host_verification_node_exporter_listener.stdout"
+          - "'0.0.0.0:9100' not in fresh_host_verification_node_exporter_listener.stdout"
+          - "'[::]:9100' not in fresh_host_verification_node_exporter_listener.stdout"
+        fail_msg: >-
+          validation_error: Node Exporter lauscht nicht ausschließlich am
+          internen Monitoring-Gateway.
+
+    - name: Node-Exporter-Kernmetriken prüfen
+      ansible.builtin.uri:
+        url: http://172.30.250.1:9100/metrics
+        method: GET
+        status_code: 200
+        return_content: true
+        use_proxy: false
+      register: fresh_host_verification_node_exporter_metrics
+
+    - name: Node-Exporter-Kernmetriken bestätigen
+      ansible.builtin.assert:
+        that:
+          - "'node_cpu_seconds_total' in fresh_host_verification_node_exporter_metrics.content"
+          - "'node_memory_MemAvailable_bytes' in fresh_host_verification_node_exporter_metrics.content"
+          - "'node_filesystem_avail_bytes' in fresh_host_verification_node_exporter_metrics.content"
+          - "'node_network_receive_bytes_total' in fresh_host_verification_node_exporter_metrics.content"
+        fail_msg: >-
+          validation_error: Node Exporter liefert nicht alle erwarteten
+          Host-Kernmetriken.
+
+    - name: cAdvisor-Listener lesen
+      ansible.builtin.command:
+        argv:
+          - ss
+          - -ltnH
+          - sport = :8080
+      register: fresh_host_verification_cadvisor_listener
+      changed_when: false
+
+    - name: cAdvisor ausschließlich am Monitoring-Gateway bestätigen
+      ansible.builtin.assert:
+        that:
+          - "'172.30.250.1:8080' in fresh_host_verification_cadvisor_listener.stdout"
+          - "'0.0.0.0:8080' not in fresh_host_verification_cadvisor_listener.stdout"
+          - "'[::]:8080' not in fresh_host_verification_cadvisor_listener.stdout"
+        fail_msg: >-
+          validation_error: cAdvisor lauscht nicht ausschließlich am
+          internen Monitoring-Gateway.
+
+    - name: cAdvisor-Kernmetriken prüfen
+      ansible.builtin.uri:
+        url: http://172.30.250.1:8080/metrics
+        method: GET
+        status_code: 200
+        return_content: true
+        use_proxy: false
+      register: fresh_host_verification_cadvisor_metrics
+
+    - name: cAdvisor-Kernmetriken bestätigen
+      ansible.builtin.assert:
+        that:
+          - "'container_cpu_usage_seconds_total' in fresh_host_verification_cadvisor_metrics.content"
+          - "'container_memory_working_set_bytes' in fresh_host_verification_cadvisor_metrics.content"
+          - "'container_network_receive_bytes_total' in fresh_host_verification_cadvisor_metrics.content"
+          - "('container_fs_usage_bytes' in fresh_host_verification_cadvisor_metrics.content) if 'disk' not in (cadvisor_disable_metrics | default(fresh_host_cadvisor_defaults.cadvisor_disable_metrics)).split(',') else ('container_fs_usage_bytes' not in fresh_host_verification_cadvisor_metrics.content)"
+          - "'container_start_time_seconds' in fresh_host_verification_cadvisor_metrics.content"
+        fail_msg: >-
+          validation_error: cAdvisor liefert nicht alle erwarteten
+          Container-Kernmetriken.
+
+
+    - name: Alloy-Gruppenmitgliedschaften lesen
+      ansible.builtin.command:
+        argv:
+          - id
+          - -nG
+          - alloy
+      register: fresh_host_verification_alloy_groups
+      changed_when: false
+
+    - name: Alloy-Vertrauensgruppen bestätigen
+      ansible.builtin.assert:
+        that:
+          - "'docker' in fresh_host_verification_alloy_groups.stdout.split()"
+          - "'systemd-journal' in fresh_host_verification_alloy_groups.stdout.split()"
+          - "'adm' in fresh_host_verification_alloy_groups.stdout.split()"
+          - "'merchfactory-runtime' in fresh_host_verification_alloy_groups.stdout.split()"
+        fail_msg: >-
+          validation_error: Alloy besitzt nicht die erwarteten
+          Docker-/Journal-Gruppen.
+
+    - name: Alloy-Stateverzeichnis prüfen
+      ansible.builtin.stat:
+        path: /var/lib/merchfactory/alloy
+      register: fresh_host_verification_alloy_state
+
+    - name: Alloy-Stateverzeichnis bestätigen
+      ansible.builtin.assert:
+        that:
+          - fresh_host_verification_alloy_state.stat.exists
+          - fresh_host_verification_alloy_state.stat.isdir
+          - fresh_host_verification_alloy_state.stat.pw_name == 'alloy'
+          - fresh_host_verification_alloy_state.stat.gr_name == 'alloy'
+          - fresh_host_verification_alloy_state.stat.mode == '0750'
+        fail_msg: >-
+          validation_error: Alloy-Stateverzeichnis entspricht nicht der
+          erwarteten Ownership-/Mode-Baseline.
+
+    - name: Alloy-Listener lesen
+      ansible.builtin.command:
+        argv:
+          - ss
+          - -ltnH
+          - sport = :12345
+      register: fresh_host_verification_alloy_listener
+      changed_when: false
+
+    - name: Alloy ausschließlich am Monitoring-Gateway bestätigen
+      ansible.builtin.assert:
+        that:
+          - "'172.30.250.1:12345' in fresh_host_verification_alloy_listener.stdout"
+          - "'0.0.0.0:12345' not in fresh_host_verification_alloy_listener.stdout"
+          - "'[::]:12345' not in fresh_host_verification_alloy_listener.stdout"
+        fail_msg: >-
+          validation_error: Alloy lauscht nicht ausschließlich am internen
+          Monitoring-Gateway.
+
+    - name: Alloy-Self-Metriken prüfen
+      ansible.builtin.uri:
+        url: http://172.30.250.1:12345/metrics
+        method: GET
+        status_code: 200
+        return_content: true
+        use_proxy: false
+      register: fresh_host_verification_alloy_metrics
+
+    - name: Alloy-Self-Metriken bestätigen
+      ansible.builtin.assert:
+        that:
+          - "'process_cpu_seconds_total' in fresh_host_verification_alloy_metrics.content"
+          - "'loki_write_sent_entries_total' in fresh_host_verification_alloy_metrics.content"
+          - "'loki_write_dropped_entries_total' in fresh_host_verification_alloy_metrics.content"
+        fail_msg: >-
+          validation_error: Alloy liefert nicht die erwarteten
+          Self-/Loki-Write-Metriken.

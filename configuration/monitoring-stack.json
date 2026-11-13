@@ -1,0 +1,318 @@
+{
+  "version": 1,
+  "decision_date": "2026-09-15",
+  "architecture": {
+    "topology": "single-primary-host",
+    "metrics_model": "prometheus-pull",
+    "log_model": "alloy-host-agent-to-loki",
+    "alert_model": "prometheus-rules-to-alertmanager",
+    "dashboard_model": "grafana",
+    "trace_backend_in_scope": false,
+    "high_availability_in_scope": false
+  },
+  "components": {
+    "prometheus": {
+      "version": "3.14.0",
+      "upstream": "prometheus/prometheus",
+      "deployment": "container",
+      "role": "metrics-store-rule-evaluator",
+      "priority_class": "critical",
+      "resources": {
+        "cpus": 1,
+        "memory_limit": "1536m",
+        "memory_reservation": "768m",
+        "pids_limit": 256
+      },
+      "persistence_required": true,
+      "public_ingress": false,
+      "image_repository": "quay.io/prometheus/prometheus",
+      "image_digest": "sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0",
+      "runtime_uid": 65534,
+      "runtime_gid": 65534
+    },
+    "alertmanager": {
+      "version": "0.34.0",
+      "upstream": "prometheus/alertmanager",
+      "deployment": "container",
+      "role": "alert-routing-grouping-inhibition",
+      "priority_class": "critical",
+      "resources": {
+        "cpus": 0.25,
+        "memory_limit": "256m",
+        "memory_reservation": "128m",
+        "pids_limit": 128
+      },
+      "persistence_required": true,
+      "public_ingress": false,
+      "egress_required": true,
+      "image_repository": "quay.io/prometheus/alertmanager",
+      "image_digest": "sha256:690c7b525f4367aa91f73e2f91c632206d32e97c6384bdbf2fb7a861b420340d",
+      "runtime_uid": 65534,
+      "runtime_gid": 65534,
+      "http_port": 9093,
+      "monitoring_ip": "172.30.250.30",
+      "high_availability": false,
+      "notification_mode": "discord-webhook-file",
+      "discord_webhook_file": "/srv/merchfactory/secrets/alertmanager/discord-webhook-url"
+    },
+    "grafana": {
+      "version": "13.2.2",
+      "upstream": "grafana/grafana",
+      "deployment": "container",
+      "role": "dashboards-query-ui",
+      "priority_class": "standard",
+      "resources": {
+        "cpus": 0.5,
+        "memory_limit": "512m",
+        "memory_reservation": "256m",
+        "pids_limit": 256
+      },
+      "persistence_required": true,
+      "public_ingress": false,
+      "access_model": "ssh-tunnel-then-vpn",
+      "image_repository": "docker.io/grafana/grafana",
+      "image_digest": "sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0",
+      "runtime_uid": 472,
+      "runtime_gid": 472,
+      "http_port": 3000,
+      "monitoring_ip": "172.30.250.20",
+      "anonymous_access": false,
+      "default_org_role": "Viewer",
+      "self_registration": false
+    },
+    "loki": {
+      "version": "3.7.7",
+      "upstream": "grafana/loki",
+      "deployment": "container",
+      "mode": "monolithic-single-binary",
+      "storage": "tsdb-filesystem",
+      "tenant_model": "single-tenant",
+      "role": "central-log-store",
+      "priority_class": "critical",
+      "resources": {
+        "cpus": 1,
+        "memory_limit": "1536m",
+        "memory_reservation": "768m",
+        "pids_limit": 256
+      },
+      "persistence_required": true,
+      "public_ingress": false,
+      "image_repository": "docker.io/grafana/loki",
+      "image_digest": "sha256:d70e4659623f3e109af669cae76fe2a5dd5be54e2298fe8aed380d982fbc2500",
+      "runtime_uid": 10001,
+      "runtime_gid": 10001,
+      "http_port": 3100,
+      "retention_period": "168h",
+      "monitoring_ip": "172.30.250.10"
+    },
+    "alloy": {
+      "version": "1.19.2",
+      "upstream": "grafana/alloy",
+      "deployment": "host-systemd-agent",
+      "role": "system-container-log-collector",
+      "docker_unix_socket_access": true,
+      "docker_tcp_api_allowed": false,
+      "public_ingress": false,
+      "persistent_state_required": true,
+      "resources": {
+        "cpu_quota_percent": 50,
+        "memory_max": "512m"
+      },
+      "archive_url": "https://github.com/grafana/alloy/releases/download/v1.19.2/alloy-linux-amd64.zip",
+      "archive_sha256": "3694ea4e1044b367e1c21ffe28117f209c5989fa5e604d000321809f871ab701",
+      "binary_path": "/usr/local/bin/alloy",
+      "system_user": "alloy",
+      "supplementary_groups": [
+        "docker",
+        "systemd-journal",
+        "adm",
+        "merchfactory-runtime"
+      ],
+      "listen_address": "172.30.250.1:12345",
+      "docker_unix_socket_path": "/var/run/docker.sock",
+      "state_path": "/var/lib/merchfactory/alloy",
+      "loki_endpoint": "http://172.30.250.10:3100/loki/api/v1/push",
+      "usage_reporting": false,
+      "working_directory": "/var/lib/merchfactory/alloy",
+      "memory_deny_write_execute": false,
+      "journal_read_only_paths": [
+        "/var/log/journal",
+        "/run/log/journal"
+      ],
+      "runtime_parent_group": "merchfactory-runtime"
+    },
+    "node_exporter": {
+      "version": "1.12.1",
+      "upstream": "prometheus/node_exporter",
+      "deployment": "host-systemd-agent",
+      "role": "host-metrics",
+      "public_ingress": false,
+      "resources": {
+        "cpu_quota_percent": 25,
+        "memory_max": "128m"
+      },
+      "archive_url": "https://github.com/prometheus/node_exporter/releases/download/v1.12.1/node_exporter-1.12.1.linux-amd64.tar.gz",
+      "archive_sha256": "b51d8a76aa2a9156a55d501aca6276fae09e262259a5e4e831d2c2222f084e63",
+      "listen_address": "172.30.250.1:9100",
+      "system_user": "node_exporter",
+      "netdev_netlink": false,
+      "network_metric_source": "/proc/net/dev"
+    },
+    "cadvisor": {
+      "version": "0.60.5",
+      "upstream": "google/cadvisor",
+      "deployment": "host-systemd-agent",
+      "role": "container-resource-metrics",
+      "public_ingress": false,
+      "resources": {
+        "cpu_quota_percent": 50,
+        "memory_max": "512m"
+      },
+      "binary_url": "https://github.com/google/cadvisor/releases/download/v0.60.5/cadvisor-v0.60.5-linux-amd64",
+      "binary_sha256": "6f258bed28113218c88729634c47ead8d928b81b1504b75fd911b98d29003a87",
+      "listen_address": "172.30.250.1:8080",
+      "system_user": "root",
+      "docker_unix_socket_access": true,
+      "docker_tcp_api_allowed": false,
+      "store_container_labels": false,
+      "whitelisted_container_labels": [
+        "com.merchfactory.managed",
+        "com.merchfactory.cleanup.protect",
+        "com.docker.compose.project",
+        "com.docker.compose.service"
+      ]
+    },
+    "blackbox_exporter": {
+      "version": "0.28.0",
+      "upstream": "prometheus/blackbox_exporter",
+      "deployment": "container",
+      "role": "dns-tls-http-probes",
+      "priority_class": "standard",
+      "resources": {
+        "cpus": 0.25,
+        "memory_limit": "128m",
+        "memory_reservation": "64m",
+        "pids_limit": 128
+      },
+      "persistence_required": false,
+      "public_ingress": false,
+      "egress_required": true
+    }
+  },
+  "metrics": {
+    "scrape_interval": "30s",
+    "evaluation_interval": "30s",
+    "prometheus_remote_write_receiver": false,
+    "raw_retention_baseline": "30d",
+    "retention_size_cap_required": true,
+    "final_capacity_issue": 96,
+    "raw_retention_size_baseline": "8GiB"
+  },
+  "logs": {
+    "docker_driver_remains": "local",
+    "collector": "alloy",
+    "storage": "loki",
+    "promtail_allowed": false,
+    "host_journal_collection": true,
+    "docker_log_collection": true,
+    "alloy_state_path": "/var/lib/merchfactory/alloy",
+    "final_retention_issue": 96,
+    "current_environment": "development",
+    "development_retention_baseline": "168h",
+    "development_capacity_target": "4GiB",
+    "capacity_target_is_hard_limit": false,
+    "label_contract": {
+      "required": [
+        "environment",
+        "host",
+        "service",
+        "component"
+      ],
+      "optional_low_cardinality": [
+        "project",
+        "container",
+        "severity"
+      ],
+      "forbidden_high_cardinality": [
+        "request_id",
+        "order_id",
+        "user_id",
+        "email",
+        "dynamic_url",
+        "stacktrace",
+        "free_message"
+      ]
+    }
+  },
+  "networking": {
+    "internal_core_services": [
+      "prometheus",
+      "alertmanager",
+      "loki",
+      "blackbox_exporter"
+    ],
+    "outbound_egress_services": [
+      "blackbox_exporter",
+      "alertmanager"
+    ],
+    "exporter_ports_publicly_open": false,
+    "docker_daemon_tcp_exposure_allowed": false,
+    "critical_external_probe_independence_required": true,
+    "monitoring_network": {
+      "name": "merchfactory-monitoring",
+      "driver": "bridge",
+      "internal": true,
+      "subnet": "172.30.250.0/24",
+      "gateway": "172.30.250.1",
+      "bridge_name": "mf-monitoring0"
+    },
+    "alerting_egress_network": {
+      "name": "merchfactory-alerting-egress",
+      "driver": "bridge",
+      "internal": false,
+      "subnet": "172.30.251.0/29",
+      "gateway": "172.30.251.1",
+      "bridge_name": "mf-alert-egress",
+      "destination_allowlisting": false,
+      "egress_scope": "unrestricted-internet"
+    },
+    "grafana_private_access_only": true
+  },
+  "security": {
+    "anonymous_grafana_access": false,
+    "grafana_authentication_required": true,
+    "prometheus_public_ui_allowed": false,
+    "alertmanager_public_ui_allowed": false,
+    "loki_public_api_allowed": false,
+    "raw_docker_socket_mount_in_containers_allowed": false,
+    "alloy_is_privileged_trusted_host_agent": true,
+    "secrets_via_files": true,
+    "immutable_container_digests_required": true,
+    "vulnerability_scan_required": true,
+    "cadvisor_is_privileged_trusted_host_agent": true
+  },
+  "persistence": {
+    "prometheus": "/srv/merchfactory/persistent/monitoring/prometheus",
+    "grafana": "/srv/merchfactory/persistent/monitoring/grafana",
+    "loki": "/srv/merchfactory/persistent/monitoring/loki",
+    "alertmanager": "/srv/merchfactory/persistent/monitoring/alertmanager",
+    "alloy": "/var/lib/merchfactory/alloy"
+  },
+  "implementation_issues": {
+    "prometheus": 85,
+    "node_exporter": 86,
+    "container_metrics": 87,
+    "grafana": 88,
+    "loki": 89,
+    "alloy": 90,
+    "alertmanager": 91,
+    "notification_channels": 92,
+    "dashboards": 93,
+    "backup_monitoring": 94,
+    "external_probes": 95,
+    "retention_capacity": 96,
+    "runbook": 97,
+    "alert_tests": 98,
+    "review": 99
+  }
+}

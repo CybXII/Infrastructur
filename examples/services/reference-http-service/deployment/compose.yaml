@@ -1,0 +1,46 @@
+services:
+  reference-http-service:
+    image: docker.io/traefik/whoami@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44
+    restart: unless-stopped
+    labels:
+      com.merchfactory.managed: "true"
+      com.merchfactory.cleanup.protect: "false"
+    init: true
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    cpu_shares: 512
+    mem_limit: 128m
+    mem_reservation: 64m
+    pids_limit: 64
+    command:
+      - --port=8080
+      - --name=merchfactory-reference-service
+    volumes:
+      - type: bind
+        source: ${REFERENCE_SERVICE_DATA_DIR:-/srv/merchfactory/persistent/reference-http-service/data}
+        target: /var/lib/reference-http-service
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "/whoami", "--help"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    stop_grace_period: 15s
+    networks:
+      - edge
+      - app
+
+networks:
+  edge:
+    external: true
+    name: ${MERCHFACTORY_EDGE_NETWORK:-merchfactory-edge}
+
+  app:
+    internal: true

@@ -1,0 +1,125 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: discord-default
+  group_by:
+    - environment
+    - host
+    - instance
+    - service
+    - alertname
+    - severity
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - receiver: discord-critical
+      matchers:
+        - severity=~"critical|high"
+    - receiver: discord-warning
+      matchers:
+        - severity="warning"
+    - receiver: discord-info
+      matchers:
+        - severity="info"
+
+receivers:
+  - name: discord-default
+    discord_configs:
+      - webhook_url_file: /run/secrets/discord-webhook-url
+        send_resolved: true
+        username: Merchfactory Monitoring
+        title: '{{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} | {{ .CommonLabels.severity }} | {{ .CommonLabels.alertname }}'
+        message: |-
+          **Status:** {{ .Status }}
+          **Umgebung:** {{ .CommonLabels.environment }}
+          **Alerts in Gruppe:** {{ len .Alerts }}
+          {{ with index .Alerts 0 }}
+          **Server:** {{ if .Labels.host }}{{ .Labels.host }}{{ else }}{{ .Labels.instance }}{{ end }}
+          {{ if .Labels.instance }}**Instanz:** {{ .Labels.instance }}{{ end }}
+          {{ if .Labels.mountpoint }}**Mountpoint:** {{ .Labels.mountpoint }}{{ end }}
+          {{ if .Labels.device }}**Device:** {{ .Labels.device }}{{ end }}
+          {{ if .Labels.test_run }}**Testlauf:** {{ .Labels.test_run }}{{ end }}
+          **Dienst:** {{ .Labels.service }}
+          **Zusammenfassung:** {{ .Annotations.summary }}
+          **Beschreibung:** {{ .Annotations.description }}
+          {{ end }}
+  - name: discord-critical
+    discord_configs:
+      - webhook_url_file: /run/secrets/discord-webhook-url
+        send_resolved: true
+        username: Merchfactory Monitoring
+        title: '{{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} | {{ .CommonLabels.severity }} | {{ .CommonLabels.alertname }}'
+        message: |-
+          **Status:** {{ .Status }}
+          **Umgebung:** {{ .CommonLabels.environment }}
+          **Alerts in Gruppe:** {{ len .Alerts }}
+          {{ with index .Alerts 0 }}
+          **Server:** {{ if .Labels.host }}{{ .Labels.host }}{{ else }}{{ .Labels.instance }}{{ end }}
+          {{ if .Labels.instance }}**Instanz:** {{ .Labels.instance }}{{ end }}
+          {{ if .Labels.mountpoint }}**Mountpoint:** {{ .Labels.mountpoint }}{{ end }}
+          {{ if .Labels.device }}**Device:** {{ .Labels.device }}{{ end }}
+          {{ if .Labels.test_run }}**Testlauf:** {{ .Labels.test_run }}{{ end }}
+          **Dienst:** {{ .Labels.service }}
+          **Zusammenfassung:** {{ .Annotations.summary }}
+          **Beschreibung:** {{ .Annotations.description }}
+          {{ end }}
+  - name: discord-warning
+    discord_configs:
+      - webhook_url_file: /run/secrets/discord-webhook-url
+        send_resolved: true
+        username: Merchfactory Monitoring
+        title: '{{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} | warning | {{ .CommonLabels.alertname }}'
+        message: |-
+          **Status:** {{ .Status }}
+          **Umgebung:** {{ .CommonLabels.environment }}
+          **Alerts in Gruppe:** {{ len .Alerts }}
+          {{ with index .Alerts 0 }}
+          **Server:** {{ if .Labels.host }}{{ .Labels.host }}{{ else }}{{ .Labels.instance }}{{ end }}
+          {{ if .Labels.instance }}**Instanz:** {{ .Labels.instance }}{{ end }}
+          {{ if .Labels.mountpoint }}**Mountpoint:** {{ .Labels.mountpoint }}{{ end }}
+          {{ if .Labels.device }}**Device:** {{ .Labels.device }}{{ end }}
+          {{ if .Labels.test_run }}**Testlauf:** {{ .Labels.test_run }}{{ end }}
+          **Dienst:** {{ .Labels.service }}
+          **Zusammenfassung:** {{ .Annotations.summary }}
+          **Beschreibung:** {{ .Annotations.description }}
+          {{ end }}
+  - name: discord-info
+    discord_configs:
+      - webhook_url_file: /run/secrets/discord-webhook-url
+        send_resolved: true
+        username: Merchfactory Monitoring
+        title: '{{ if eq .Status "firing" }}FIRING{{ else }}RESOLVED{{ end }} | info | {{ .CommonLabels.alertname }}'
+        message: |-
+          **Status:** {{ .Status }}
+          **Umgebung:** {{ .CommonLabels.environment }}
+          **Alerts in Gruppe:** {{ len .Alerts }}
+          {{ with index .Alerts 0 }}
+          **Server:** {{ if .Labels.host }}{{ .Labels.host }}{{ else }}{{ .Labels.instance }}{{ end }}
+          {{ if .Labels.instance }}**Instanz:** {{ .Labels.instance }}{{ end }}
+          {{ if .Labels.mountpoint }}**Mountpoint:** {{ .Labels.mountpoint }}{{ end }}
+          {{ if .Labels.device }}**Device:** {{ .Labels.device }}{{ end }}
+          {{ if .Labels.test_run }}**Testlauf:** {{ .Labels.test_run }}{{ end }}
+          **Dienst:** {{ .Labels.service }}
+          **Zusammenfassung:** {{ .Annotations.summary }}
+          **Beschreibung:** {{ .Annotations.description }}
+          {{ end }}
+
+inhibit_rules:
+  - source_matchers:
+      - severity=~"critical|high"
+    target_matchers:
+      - severity=~"warning|info"
+    equal:
+      - environment
+      - service
+      - instance
+  - source_matchers:
+      - alertname=~".*(Down|Unavailable)$"
+    target_matchers:
+      - severity=~"warning|info"
+    equal:
+      - environment
+      - service
+      - instance

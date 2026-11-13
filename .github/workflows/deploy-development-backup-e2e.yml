@@ -1,0 +1,72 @@
+name: Install development backup monitoring E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [development]
+    paths:
+      - 'tests/integration/backup-monitoring-e2e.py'
+      - 'tests/integration/run-backup-monitoring-e2e.py'
+      - 'tests/integration/notify-backup-monitoring-e2e.py'
+      - 'scripts/install-backup-monitoring-e2e-dev.sh'
+      - 'scripts/run-backup-monitoring-e2e-and-notify.sh'
+      - 'templates/systemd/merchfactory-backup-monitoring-e2e.*'
+      - '.github/workflows/deploy-development-backup-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-development-backup-e2e
+  cancel-in-progress: false
+
+jobs:
+  install:
+    if: vars.DEVELOPMENT_BOOTSTRAP_MANAGED_HOST_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate E2E scripts
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/install-backup-monitoring-e2e-dev.sh scripts/run-backup-monitoring-e2e-and-notify.sh
+          if grep -nF '\n' scripts/install-backup-monitoring-e2e-dev.sh scripts/run-backup-monitoring-e2e-and-notify.sh tests/integration/run-backup-monitoring-e2e.py; then
+            echo "ERROR: literal backslash-n detected in E2E scripts" >&2
+            exit 1
+          fi
+          python3 -m py_compile tests/integration/backup-monitoring-e2e.py tests/integration/run-backup-monitoring-e2e.py tests/integration/notify-backup-monitoring-e2e.py
+          python3 -c 'import ast,pathlib; t=ast.parse(pathlib.Path("tests/integration/run-backup-monitoring-e2e.py").read_text()); f=next(n for n in t.body if isinstance(n,ast.FunctionDef) and n.name=="alert_state"); assert any(isinstance(n,ast.Return) and n.value is not None for n in ast.walk(f))'
+      - name: Prepare SSH
+        env:
+          KEY: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_SSH_KEY }}
+          KNOWN: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$KEY"
+          test -n "$KNOWN"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/e2e-key"
+          chmod 0600 "$RUNNER_TEMP/e2e-key"
+          printf '%s\n' "$KNOWN" > "$HOME/.ssh/known_hosts"
+      - name: Install on development host and start local test
+        env:
+          HOST: ${{ secrets.DEVELOPMENT_BOOTSTRAP_TEST_HOST }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$HOST"
+          git rev-parse HEAD > deployed-commit
+          tar -czf - deployed-commit tests/integration/backup-monitoring-e2e.py tests/integration/run-backup-monitoring-e2e.py tests/integration/notify-backup-monitoring-e2e.py scripts/install-backup-monitoring-e2e-dev.sh scripts/run-backup-monitoring-e2e-and-notify.sh templates/systemd/merchfactory-backup-monitoring-e2e.service templates/systemd/merchfactory-backup-monitoring-e2e.timer |
+            ssh -i "$RUNNER_TEMP/e2e-key" -o BatchMode=yes -o StrictHostKeyChecking=yes bootstrap@"$HOST" 'sudo -n install -d -m 0755 /opt/merchfactory/backup-e2e-release && sudo -n tar -xzf - -C /opt/merchfactory/backup-e2e-release'
+          ssh -i "$RUNNER_TEMP/e2e-key" -o BatchMode=yes -o StrictHostKeyChecking=yes bootstrap@"$HOST" '
+            sudo -n test -d /var/lib/merchfactory/node_exporter/textfile
+            sudo -n test -x /usr/bin/docker
+            sudo -n bash /opt/merchfactory/backup-e2e-release/scripts/install-backup-monitoring-e2e-dev.sh --environment=development
+            sudo -n cmp /opt/merchfactory/backup-e2e-release/tests/integration/run-backup-monitoring-e2e.py /opt/merchfactory/monitoring-e2e/run-backup-monitoring-e2e.py
+            sudo -n cmp /opt/merchfactory/backup-e2e-release/tests/integration/notify-backup-monitoring-e2e.py /opt/merchfactory/monitoring-e2e/notify-backup-monitoring-e2e.py
+            sudo -n cmp /opt/merchfactory/backup-e2e-release/deployed-commit /opt/merchfactory/monitoring-e2e/deployed-commit
+            sudo -n systemctl start --no-block merchfactory-backup-monitoring-e2e.service
+          '
+          echo "Local systemd test started asynchronously; GitHub runner does not wait for test completion." >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        run: rm -f "$RUNNER_TEMP/e2e-key"

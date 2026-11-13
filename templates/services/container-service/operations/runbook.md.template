@@ -1,0 +1,143 @@
+# Betriebsanweisung: {{SERVICE_NAME}}
+
+## Metadaten
+
+- Verantwortlich: `{{OWNER}}`
+- Öffentlicher Host: `{{PUBLIC_HOSTNAME}}`
+- Container-Port: `{{CONTAINER_PORT}}`
+- Eskalation: `{{ESCALATION_CONTACT}}`
+
+## Laufzeitzustand
+
+Empfohlener Hostpfad:
+
+```text
+/srv/merchfactory/deployments/{{SERVICE_NAME}}/
+├── release.env
+├── state.json
+└── .deployment.lock
+```
+
+`release.env` enthält ausschließlich den aktuell freigegebenen Image-Digest. `state.json` enthält keine Secrets.
+
+## Start / aktueller Zustand
+
+Für verwaltete Deployments wird der gespeicherte Releasezustand verwendet:
+
+```bash
+docker compose \
+  --env-file /srv/merchfactory/deployments/{{SERVICE_NAME}}/release.env \
+  -p {{SERVICE_NAME}} \
+  -f deployment/compose.yaml \
+  up -d
+```
+
+Status:
+
+```bash
+python3 deployment/service-release.py status \
+  --state-file /srv/merchfactory/deployments/{{SERVICE_NAME}}/state.json
+```
+
+Containerstatus:
+
+```bash
+docker compose \
+  --env-file /srv/merchfactory/deployments/{{SERVICE_NAME}}/release.env \
+  -p {{SERVICE_NAME}} \
+  -f deployment/compose.yaml \
+  ps
+```
+
+## Logs
+
+```bash
+docker compose \
+  --env-file /srv/merchfactory/deployments/{{SERVICE_NAME}}/release.env \
+  -p {{SERVICE_NAME}} \
+  -f deployment/compose.yaml \
+  logs --tail=200 {{SERVICE_NAME}}
+```
+
+Secret-Werte oder vollständige Environment-Dumps dürfen nicht in Tickets oder Betriebsprotokolle kopiert werden.
+
+## Healthcheck
+
+Containerintern:
+
+```text
+{{HEALTHCHECK_COMMAND}}
+```
+
+Readiness/Smoke:
+
+```text
+https://{{PUBLIC_HOSTNAME}}{{READINESS_PATH}}
+```
+
+## Backup vor Änderungen
+
+Die Vorgaben aus `backup/policy.yaml`, `docs/07-disaster-recovery.md` und `docs/57-update-rollback.md` anwenden.
+
+- `none`: kein zusätzliches Update-Backup zwingend.
+- `compatible`: erfolgreiche Backup-Referenz verpflichtend.
+- `destructive`: Backup- und Restore-Plan-Referenz verpflichtend; kein automatischer Artefakt-Rollback.
+
+## Update
+
+Beispiel für ein datenkompatibles Staging-Update:
+
+```bash
+python3 deployment/service-release.py deploy \
+  --compose-file deployment/compose.yaml \
+  --project-name {{SERVICE_NAME}} \
+  --service {{SERVICE_NAME}} \
+  --state-file /srv/merchfactory/deployments/{{SERVICE_NAME}}/state.json \
+  --release-env /srv/merchfactory/deployments/{{SERVICE_NAME}}/release.env \
+  --target-image ghcr.io/merchfactory/{{SERVICE_NAME}}@sha256:<digest> \
+  --environment staging \
+  --data-change compatible \
+  --backup-reference <backup-id> \
+  --approval-reference <approval-id> \
+  --source-revision <commit-sha> \
+  --release-reference <release-id> \
+  --verify-url https://{{PUBLIC_HOSTNAME}}{{READINESS_PATH}}
+```
+
+Nur bereits geprüfte SHA-256-Digests werden deployt.
+
+## Manueller Rollback
+
+```bash
+python3 deployment/service-release.py rollback \
+  --compose-file deployment/compose.yaml \
+  --project-name {{SERVICE_NAME}} \
+  --service {{SERVICE_NAME}} \
+  --state-file /srv/merchfactory/deployments/{{SERVICE_NAME}}/state.json \
+  --release-env /srv/merchfactory/deployments/{{SERVICE_NAME}}/release.env \
+  --environment production \
+  --approval-reference <incident-oder-approval-id> \
+  --verify-url https://{{PUBLIC_HOSTNAME}}{{READINESS_PATH}}
+```
+
+Der Rollback wird ebenfalls verifiziert.
+
+## Fehlgeschlagenes Update
+
+Bei datenkompatibler Änderung versucht der Controller automatisch die bekannte gute Version wiederherzustellen.
+
+Auch bei erfolgreichem Rollback bleibt der ursprüngliche Deployment-Versuch **fehlgeschlagen**. CI/CD darf ihn nicht als erfolgreichen Release behandeln.
+
+Bei destruktiver Datenänderung erfolgt kein automatischer Container-Downgrade. Backup-/Restore- oder Roll-forward-Entscheidung ist erforderlich.
+
+## Störung
+
+1. Deploymentstatus und `state.json` prüfen.
+2. Healthstatus prüfen.
+3. Logs ohne Secret-Ausgabe prüfen.
+4. aktuellen und vorherigen Digest vergleichen.
+5. Backup-/Restore-Referenz prüfen.
+6. keine destruktiven Datenmaßnahmen ohne Restore-Entscheidung durchführen.
+7. bei Bedarf an `{{ESCALATION_CONTACT}}` eskalieren.
+
+Vollständiges Verfahren: `docs/57-update-rollback.md`.

@@ -1,0 +1,66 @@
+services:
+  prometheus:
+    image: ${SERVICE_IMAGE_REFERENCE:-quay.io/prometheus/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0}
+    restart: unless-stopped
+    labels:
+      com.merchfactory.managed: "true"
+      com.merchfactory.cleanup.protect: "false"
+    init: true
+    user: "65534:65534"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: ${PROMETHEUS_CPU_LIMIT:-1.0}
+    cpu_shares: ${PROMETHEUS_CPU_SHARES:-1024}
+    mem_limit: ${PROMETHEUS_MEMORY_LIMIT:-1536m}
+    mem_reservation: ${PROMETHEUS_MEMORY_RESERVATION:-768m}
+    pids_limit: ${PROMETHEUS_PIDS_LIMIT:-256}
+    environment:
+      PROMETHEUS_ENVIRONMENT: ${PROMETHEUS_ENVIRONMENT:-development}
+      PROMETHEUS_HOST: ${PROMETHEUS_HOST:-prometheus}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-8GiB}
+      - --web.listen-address=0.0.0.0:9090
+    volumes:
+      - type: bind
+        source: ../../../monitoring/prometheus/prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+        read_only: true
+      - type: bind
+        source: ../../../monitoring/prometheus/rules
+        target: /etc/prometheus/rules
+        read_only: true
+      - type: bind
+        source: ../../../monitoring/prometheus/targets
+        target: /etc/prometheus/targets
+        read_only: true
+      - type: bind
+        source: ${PROMETHEUS_SERVICE_TARGETS_DIR:-/srv/merchfactory/monitoring/targets}
+        target: /etc/prometheus/service-targets
+        read_only: true
+      - type: bind
+        source: ${PROMETHEUS_DATA_DIR:-/srv/merchfactory/persistent/monitoring/prometheus}
+        target: /prometheus
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null http://127.0.0.1:9090/-/healthy
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    stop_grace_period: 30s
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    external: true
+    name: ${MERCHFACTORY_MONITORING_NETWORK:-merchfactory-monitoring}

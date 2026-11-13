@@ -1,0 +1,101 @@
+---
+- name: Fresh-Host-Voraussetzungen prüfen
+  hosts: bootstrap_targets
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Unterstütztes Zielsystem bestätigen
+      ansible.builtin.assert:
+        that:
+          - ansible_architecture == 'x86_64'
+          - ansible_distribution in ['AlmaLinux', 'Rocky']
+          - ansible_distribution_major_version == '9'
+        fail_msg: >-
+          validation_error: Zielsystem ist nicht AlmaLinux 9 oder Rocky Linux 9
+          auf x86_64; Fresh-Host-Test wurde vor Änderungen abgebrochen.
+
+    - name: Initialen Verbindungsbenutzer ermitteln
+      ansible.builtin.command:
+        cmd: id -un
+      become: false
+      register: fresh_host_preflight_connection_user
+      changed_when: false
+
+    - name: Initialen Verbindungsbenutzer bestätigen
+      ansible.builtin.assert:
+        that:
+          - >-
+            fresh_host_preflight_connection_user.stdout | trim
+            == bootstrap_initial_user
+        fail_msg: >-
+          authentication_error: Verbindung verwendet nicht den erwarteten
+          initialen Provider-Benutzer.
+
+    - name: Passwortloses sudo für initialen Nicht-Root-Benutzer prüfen
+      ansible.builtin.command:
+        cmd: sudo -n true
+      become: false
+      changed_when: false
+      when: bootstrap_initial_user != 'root'
+
+    - name: Freien Speicher im Root-Dateisystem bestimmen
+      ansible.builtin.set_fact:
+        fresh_host_root_mount: >-
+          {{ ansible_mounts | selectattr('mount', 'equalto', '/') | first }}
+
+    - name: Ausreichenden freien Speicher bestätigen
+      ansible.builtin.assert:
+        that:
+          - fresh_host_root_mount.size_available | int >= 2147483648
+        fail_msg: >-
+          validation_error: Weniger als 2 GiB freier Speicher im
+          Root-Dateisystem; Fresh-Host-Test wurde vor Änderungen abgebrochen.
+
+    - name: Paketquellen prüfen
+      ansible.builtin.command:
+        cmd: dnf repolist
+      changed_when: false
+
+    - name: DNS-Auflösung der Docker-Paketquelle prüfen
+      ansible.builtin.command:
+        cmd: getent ahostsv4 download.docker.com
+      changed_when: false
+
+    - name: HTTPS-Zugriff auf Docker-Paketquelle prüfen
+      ansible.builtin.uri:
+        url: https://download.docker.com/linux/centos/
+        method: HEAD
+        follow_redirects: safe
+        status_code: 200
+        timeout: 15
+
+    - name: Verwalteten Benutzer suchen
+      ansible.builtin.command:
+        cmd: getent passwd {{ bootstrap_managed_user }}
+      register: fresh_host_preflight_managed_user
+      changed_when: false
+      failed_when: false
+
+    - name: Fehlenden verwalteten Benutzer bestätigen
+      ansible.builtin.assert:
+        that:
+          - fresh_host_preflight_managed_user.rc != 0
+        fail_msg: >-
+          conflict_error: Der verwaltete Benutzer existiert bereits; das Ziel
+          ist kein unveränderter Fresh Host.
+
+    - name: Docker-Installation suchen
+      ansible.builtin.command:
+        cmd: rpm -q docker-ce
+      register: fresh_host_preflight_docker
+      changed_when: false
+      failed_when: false
+
+    - name: Fehlende Docker-Installation bestätigen
+      ansible.builtin.assert:
+        that:
+          - fresh_host_preflight_docker.rc != 0
+        fail_msg: >-
+          conflict_error: Docker CE ist bereits installiert; das Ziel ist kein
+          unveränderter Fresh Host.

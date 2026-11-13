@@ -1,0 +1,346 @@
+---
+- name: Alloy-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - alloy_version is match('^[0-9]+\.[0-9]+\.[0-9]+$')
+      - alloy_download_url is match('^https://github\.com/grafana/alloy/releases/download/')
+      - alloy_archive_sha256 is match('^[0-9a-f]{64}$')
+      - alloy_user | length > 0
+      - alloy_group | length > 0
+      - alloy_binary_path is match('^/')
+      - alloy_config_path is match('^/')
+      - alloy_state_path is match('^/')
+      - alloy_docker_socket_path == '/var/run/docker.sock'
+      - alloy_listen_address == '172.30.250.1:12345'
+      - alloy_loki_endpoint == 'http://172.30.250.10:3100/loki/api/v1/push'
+      - alloy_tasks_max | int > 0
+      - "'merchfactory-runtime' in alloy_supplementary_groups"
+    fail_msg: Ungültige Alloy-Konfiguration.
+  when: alloy_enabled | bool
+
+- name: Alloy-Entpackwerkzeug installieren
+  ansible.builtin.package:
+    name: unzip
+    state: present
+  when: alloy_enabled | bool
+
+- name: Alloy-Gruppe anlegen
+  ansible.builtin.group:
+    name: "{{ alloy_group }}"
+    system: true
+    state: present
+  when: alloy_enabled | bool
+
+- name: Alloy-Benutzer anlegen
+  ansible.builtin.user:
+    name: "{{ alloy_user }}"
+    group: "{{ alloy_group }}"
+    groups: "{{ alloy_supplementary_groups | join(',') }}"
+    append: true
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    password_lock: true
+    state: present
+  notify: Alloy neu starten
+  when: alloy_enabled | bool
+
+- name: Docker-Socket für Alloy prüfen
+  ansible.builtin.stat:
+    path: "{{ alloy_docker_socket_path }}"
+  register: alloy_docker_socket
+  when: alloy_enabled | bool
+
+- name: Docker-Socket für Alloy bestätigen
+  ansible.builtin.assert:
+    that:
+      - alloy_docker_socket.stat.exists
+      - alloy_docker_socket.stat.issock | default(false)
+    fail_msg: Alloy benötigt den lokalen Docker-Unix-Socket.
+  when: alloy_enabled | bool
+
+- name: Alloy-Verzeichnisse anlegen
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ alloy_cache_dir }}"
+      owner: root
+      group: root
+      mode: '0750'
+    - path: "{{ alloy_extract_root }}"
+      owner: root
+      group: root
+      mode: '0755'
+    - path: "{{ alloy_extract_dir }}"
+      owner: root
+      group: root
+      mode: '0755'
+    - path: "{{ alloy_config_dir }}"
+      owner: root
+      group: "{{ alloy_group }}"
+      mode: '0750'
+    - path: "{{ alloy_state_path }}"
+      owner: "{{ alloy_user }}"
+      group: "{{ alloy_group }}"
+      mode: '0750'
+  when: alloy_enabled | bool
+
+- name: Alloy-Statepfad als Servicebenutzer prüfen
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/test
+      - "{{ item }}"
+      - "{{ alloy_state_path }}"
+  loop:
+    - -x
+    - -w
+  become_user: "{{ alloy_user }}"
+  changed_when: false
+  when: alloy_enabled | bool
+
+- name: Alloy-Archiv mit SHA256-Prüfung herunterladen
+  ansible.builtin.get_url:
+    url: "{{ alloy_download_url }}"
+    dest: "{{ alloy_archive_path }}"
+    owner: root
+    group: root
+    mode: '0640'
+    checksum: "sha256:{{ alloy_archive_sha256 }}"
+  when: alloy_enabled | bool
+
+- name: Alloy-Archiv entpacken
+  ansible.builtin.unarchive:
+    src: "{{ alloy_archive_path }}"
+    dest: "{{ alloy_extract_dir }}"
+    remote_src: true
+    creates: "{{ alloy_extracted_binary }}"
+  when: alloy_enabled | bool
+
+- name: Alloy-Binary installieren
+  ansible.builtin.copy:
+    src: "{{ alloy_extracted_binary }}"
+    dest: "{{ alloy_binary_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Alloy neu starten
+  when: alloy_enabled | bool
+
+- name: Alloy-Konfiguration installieren
+  ansible.builtin.copy:
+    src: "{{ alloy_config_source }}"
+    dest: "{{ alloy_config_path }}"
+    owner: root
+    group: "{{ alloy_group }}"
+    mode: '0640'
+  notify: Alloy neu starten
+  when: alloy_enabled | bool
+
+- name: Alloy-Konfiguration validieren
+  ansible.builtin.command:
+    argv:
+      - "{{ alloy_binary_path }}"
+      - validate
+      - "{{ alloy_config_path }}"
+  environment:
+    MERCHFACTORY_ENVIRONMENT: "{{ alloy_environment }}"
+    ALLOY_LOKI_ENDPOINT: "{{ alloy_loki_endpoint }}"
+  changed_when: false
+  when: alloy_enabled | bool
+
+- name: Alloy-systemd-Unit installieren
+  ansible.builtin.template:
+    src: alloy.service.j2
+    dest: "{{ alloy_service_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - systemd für Alloy neu laden
+    - Alloy neu starten
+  when: alloy_enabled | bool
+
+- name: Alloy-Handler anwenden
+  ansible.builtin.meta: flush_handlers
+  when: alloy_enabled | bool
+
+- name: Alloy aktivieren und starten
+  ansible.builtin.systemd_service:
+    name: "{{ alloy_service_name }}"
+    enabled: true
+    state: started
+  when: alloy_enabled | bool
+
+- name: Alloy-Dienststatus abwarten
+  ansible.builtin.command:
+    cmd: "systemctl is-active {{ alloy_service_name }}"
+  register: alloy_service_status
+  changed_when: false
+  failed_when: false
+  retries: 15
+  delay: 2
+  until: alloy_service_status.stdout | trim == 'active'
+  when: alloy_enabled | bool
+
+- name: Alloy-systemd-Status bei Startfehler erfassen
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - status
+      - "{{ alloy_service_name }}"
+      - --no-pager
+      - --full
+  register: alloy_systemd_status
+  changed_when: false
+  failed_when: false
+  when:
+    - alloy_enabled | bool
+    - alloy_service_status.stdout | trim != 'active'
+
+- name: Alloy-Journal bei Startfehler erfassen
+  ansible.builtin.command:
+    argv:
+      - journalctl
+      - -u
+      - "{{ alloy_service_name }}"
+      - -n
+      - "100"
+      - --no-pager
+  register: alloy_journal_status
+  changed_when: false
+  failed_when: false
+  when:
+    - alloy_enabled | bool
+    - alloy_service_status.stdout | trim != 'active'
+
+- name: Alloy-Startfehler mit Diagnose abbrechen
+  ansible.builtin.fail:
+    msg: |-
+      Alloy wurde nicht stabil aktiv.
+
+      systemctl status:
+      {{ alloy_systemd_status.stdout | default('keine systemd-Ausgabe') }}
+
+      journalctl:
+      {{ alloy_journal_status.stdout | default('keine Journal-Ausgabe') }}
+  when:
+    - alloy_enabled | bool
+    - alloy_service_status.stdout | trim != 'active'
+
+- name: Alloy-Version prüfen
+  ansible.builtin.command:
+    argv:
+      - "{{ alloy_binary_path }}"
+      - --version
+  register: alloy_version_output
+  changed_when: false
+  when: alloy_enabled | bool
+
+- name: Alloy-Docker-Zugriff als Servicebenutzer prüfen
+  ansible.builtin.command:
+    argv:
+      - docker
+      - ps
+      - --format
+      - "{{ '{{.ID}}' }}"
+  become_user: "{{ alloy_user }}"
+  changed_when: false
+  when: alloy_enabled | bool
+
+- name: Alloy-Journalzugriff als Servicebenutzer prüfen
+  ansible.builtin.command:
+    argv:
+      - journalctl
+      - --no-pager
+      - -n
+      - "1"
+  become_user: "{{ alloy_user }}"
+  changed_when: false
+  when: alloy_enabled | bool
+
+- name: Alloy-Metrikendpunkt lokal über Monitoring-Gateway prüfen
+  ansible.builtin.uri:
+    url: "http://{{ alloy_listen_address }}/metrics"
+    method: GET
+    status_code: 200
+    return_content: true
+    use_proxy: false
+  register: alloy_metrics
+  retries: 30
+  delay: 1
+  until: alloy_metrics.status | default(0) == 200
+  changed_when: false
+  failed_when: false
+  when: alloy_enabled | bool
+
+- name: Alloy-systemd-Status bei Metrics-Fehler erfassen
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - status
+      - "{{ alloy_service_name }}"
+      - --no-pager
+      - --full
+  register: alloy_metrics_systemd_status
+  changed_when: false
+  failed_when: false
+  when:
+    - alloy_enabled | bool
+    - alloy_metrics.status | default(0) != 200
+
+- name: Alloy-Journal bei Metrics-Fehler erfassen
+  ansible.builtin.command:
+    argv:
+      - journalctl
+      - -u
+      - "{{ alloy_service_name }}"
+      - -n
+      - "100"
+      - --no-pager
+  register: alloy_metrics_journal_status
+  changed_when: false
+  failed_when: false
+  when:
+    - alloy_enabled | bool
+    - alloy_metrics.status | default(0) != 200
+
+- name: Alloy-Metrics-Fehler mit Diagnose abbrechen
+  ansible.builtin.fail:
+    msg: |-
+      Alloy-Metrikendpunkt {{ alloy_listen_address }} ist nicht erreichbar.
+
+      systemctl status:
+      {{ alloy_metrics_systemd_status.stdout | default('keine systemd-Ausgabe') }}
+
+      journalctl:
+      {{ alloy_metrics_journal_status.stdout | default('keine Journal-Ausgabe') }}
+  when:
+    - alloy_enabled | bool
+    - alloy_metrics.status | default(0) != 200
+
+- name: Alloy-Listener prüfen
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -ltnH
+      - "sport = :{{ alloy_listen_port }}"
+  register: alloy_listener
+  changed_when: false
+  when: alloy_enabled | bool
+
+- name: Alloy-Baseline bestätigen
+  ansible.builtin.assert:
+    that:
+      - alloy_service_status.stdout | trim == 'active'
+      - alloy_version in (alloy_version_output.stdout ~ alloy_version_output.stderr)
+      - "'process_cpu_seconds_total' in alloy_metrics.content"
+      - alloy_monitoring_gateway in alloy_listener.stdout
+      - "'0.0.0.0:' ~ (alloy_listen_port | string) not in alloy_listener.stdout"
+      - "'[::]:' ~ (alloy_listen_port | string) not in alloy_listener.stdout"
+    fail_msg: Alloy entspricht nicht der erwarteten Host-Logcollector-Baseline.
+  when: alloy_enabled | bool

@@ -1,0 +1,44 @@
+services:
+  traefik:
+    image: docker.io/library/traefik@sha256:f86a2cab1b5c649070c49f883c743dd32d8485a56e3368c5f93b9e91f1e91259
+    restart: unless-stopped
+    labels:
+      com.merchfactory.managed: "true"
+      com.merchfactory.cleanup.protect: "false"
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: ${TRAEFIK_CPU_LIMIT:-1.0}
+    cpu_shares: ${TRAEFIK_CPU_SHARES:-1024}
+    mem_limit: ${TRAEFIK_MEMORY_LIMIT:-512m}
+    mem_reservation: ${TRAEFIK_MEMORY_RESERVATION:-256m}
+    pids_limit: ${TRAEFIK_PIDS_LIMIT:-128}
+    ports:
+      - "${TRAEFIK_HTTP_BIND:-127.0.0.1:18080}:8080"
+      - "${TRAEFIK_HTTPS_BIND:-127.0.0.1:18443}:8443"
+      - "${TRAEFIK_ADMIN_BIND:-127.0.0.1:18081}:8081"
+    volumes:
+      - ./config/traefik.yaml:/etc/traefik/traefik.yaml:ro
+      - ./config/dynamic:/etc/traefik/dynamic:ro
+      - ${TRAEFIK_ACME_DIR:-/srv/merchfactory/persistent/traefik/acme}:/var/lib/traefik/acme
+    tmpfs:
+      - /tmp
+    command:
+      - --configFile=/etc/traefik/traefik.yaml
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    stop_grace_period: 30s
+    networks:
+      - edge
+
+networks:
+  edge:
+    external: true
+    name: ${MERCHFACTORY_EDGE_NETWORK:-merchfactory-edge}

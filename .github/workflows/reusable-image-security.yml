@@ -1,0 +1,95 @@
+name: Reusable Image Security
+
+on:
+  workflow_call:
+    inputs:
+      image_ref:
+        description: Vollständige OCI-Image-Referenz inklusive sha256-Digest
+        required: true
+        type: string
+      additional_image_ref:
+        description: Optionales zweites OCI-Image für denselben Scan-Runner
+        required: false
+        default: ''
+        type: string
+      verify_provenance:
+        description: GitHub Artifact Attestation verifizieren
+        required: false
+        default: false
+        type: boolean
+      provenance_repository:
+        description: Erwartetes owner/repository für die Provenance
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+  attestations: read
+
+jobs:
+  image-security:
+    name: Scan and verify image
+    runs-on: ephemeral-linux
+    timeout-minutes: 15
+
+    steps:
+      - name: Trivy installieren
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.70.0
+          cache: true
+
+      - name: HIGH und CRITICAL Schwachstellen berichten
+        shell: bash
+        env:
+          IMAGE_REF: ${{ inputs.image_ref }}
+          ADDITIONAL_IMAGE_REF: ${{ inputs.additional_image_ref }}
+        run: |
+          set -Eeuo pipefail
+          for image in "$IMAGE_REF" "$ADDITIONAL_IMAGE_REF"; do
+            [[ -z "$image" ]] && continue
+            trivy image \
+              --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --exit-code 0 \
+              "$image"
+          done
+
+      - name: Fixbare CRITICAL Schwachstellen blockieren
+        shell: bash
+        env:
+          IMAGE_REF: ${{ inputs.image_ref }}
+          ADDITIONAL_IMAGE_REF: ${{ inputs.additional_image_ref }}
+        run: |
+          set -Eeuo pipefail
+          for image in "$IMAGE_REF" "$ADDITIONAL_IMAGE_REF"; do
+            [[ -z "$image" ]] && continue
+            trivy image \
+              --db-repository ghcr.io/aquasecurity/trivy-db:2 \
+              --scanners vuln \
+              --severity CRITICAL \
+              --ignore-unfixed \
+              --exit-code 1 \
+              "$image"
+          done
+
+      - name: First-Party-Provenance verifizieren
+        if: ${{ inputs.verify_provenance }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_REF: ${{ inputs.image_ref }}
+          PROVENANCE_REPOSITORY: ${{ inputs.provenance_repository }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -z "$PROVENANCE_REPOSITORY" ]]; then
+            echo "provenance_repository ist bei verify_provenance=true erforderlich." >&2
+            exit 2
+          fi
+
+          gh attestation verify \
+            "oci://$IMAGE_REF" \
+            --repo "$PROVENANCE_REPOSITORY"

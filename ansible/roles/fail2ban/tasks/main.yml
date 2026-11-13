@@ -1,0 +1,65 @@
+---
+- name: Fail2ban-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - fail2ban_ignoreip is iterable
+      - fail2ban_sshd_port | int > 0
+      - fail2ban_sshd_port | int < 65536
+      - fail2ban_sshd_maxretry | int > 0
+      - fail2ban_recidive_maxretry | int > 0
+    fail_msg: Ungültige Fail2ban-Konfiguration.
+
+- name: EPEL-Repository sicherstellen
+  ansible.builtin.dnf:
+    name: epel-release
+    state: present
+
+- name: Fail2ban installieren
+  ansible.builtin.dnf:
+    name:
+      - fail2ban
+      - fail2ban-firewalld
+    state: present
+
+- name: Fail2ban-Konfiguration installieren
+  ansible.builtin.template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Fail2ban neu starten
+
+- name: Fail2ban-Konfiguration prüfen
+  ansible.builtin.command:
+    cmd: fail2ban-client -t
+  changed_when: false
+
+- name: Fail2ban aktivieren und starten
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    enabled: true
+    state: started
+
+- name: Fail2ban-Handler ausführen
+  ansible.builtin.meta: flush_handlers
+
+- name: Fail2ban-Status abrufen
+  ansible.builtin.command:
+    cmd: fail2ban-client status
+  register: fail2ban_status
+  changed_when: false
+
+- name: SSH-Jail prüfen
+  ansible.builtin.command:
+    cmd: fail2ban-client status sshd
+  register: fail2ban_sshd_status
+  changed_when: false
+  when: fail2ban_sshd_enabled | bool
+
+- name: Recidive-Jail prüfen
+  ansible.builtin.command:
+    cmd: fail2ban-client status recidive
+  register: fail2ban_recidive_status
+  changed_when: false
+  when: fail2ban_recidive_enabled | bool

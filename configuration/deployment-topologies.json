@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "current_profile": "development-only",
+  "environments": [
+    "development",
+    "staging",
+    "production"
+  ],
+  "host_roles": [
+    "host_baseline",
+    "edge",
+    "application",
+    "database",
+    "monitoring_server",
+    "monitoring_agent",
+    "backup_agent"
+  ],
+  "rules": {
+    "environment_and_host_topology_are_independent": true,
+    "environment_isolation_required_on_shared_hosts": true,
+    "isolation_dimensions": [
+      "compose_project",
+      "network",
+      "persistent_storage",
+      "runtime_secrets",
+      "database_credentials"
+    ],
+    "application_database_endpoint_indirection_required": true,
+    "public_database_exposure_allowed": false,
+    "monitoring_agent_required_on_every_managed_host": true,
+    "monitoring_server_singleton_per_topology": true,
+    "production_database_split_is_optional": true
+  },
+  "profiles": {
+    "development-only": {
+      "description": "Aktueller Aufbau: ein Host betreibt nur Development und die zentrale Betriebsbasis.",
+      "host_count": 1,
+      "active_environments": [
+        "development"
+      ],
+      "placements": {
+        "development-host": {
+          "roles": [
+            "host_baseline",
+            "edge",
+            "application",
+            "database",
+            "monitoring_server",
+            "monitoring_agent",
+            "backup_agent"
+          ],
+          "environments": [
+            "development"
+          ]
+        }
+      }
+    },
+    "compact": {
+      "description": "Ein Host betreibt Production, Staging und Development logisch getrennt.",
+      "host_count": 1,
+      "active_environments": [
+        "development",
+        "staging",
+        "production"
+      ],
+      "placements": {
+        "all-in-one-host": {
+          "roles": [
+            "host_baseline",
+            "edge",
+            "application",
+            "database",
+            "monitoring_server",
+            "monitoring_agent",
+            "backup_agent"
+          ],
+          "environments": [
+            "development",
+            "staging",
+            "production"
+          ]
+        }
+      }
+    },
+    "standard": {
+      "description": "Production App und DB teilen einen Host; Development und Staging teilen einen zweiten Host.",
+      "host_count": 2,
+      "active_environments": [
+        "development",
+        "staging",
+        "production"
+      ],
+      "placements": {
+        "production-host": {
+          "roles": [
+            "host_baseline",
+            "edge",
+            "application",
+            "database",
+            "monitoring_agent",
+            "backup_agent"
+          ],
+          "environments": [
+            "production"
+          ]
+        },
+        "nonproduction-host": {
+          "roles": [
+            "host_baseline",
+            "edge",
+            "application",
+            "database",
+            "monitoring_server",
+            "monitoring_agent",
+            "backup_agent"
+          ],
+          "environments": [
+            "development",
+            "staging"
+          ]
+        }
+      }
+    },
+    "split-production": {
+      "description": "Production App und Production DB laufen getrennt; Development und Staging teilen einen dritten Host.",
+      "host_count": 3,
+      "active_environments": [
+        "development",
+        "staging",
+        "production"
+      ],
+      "placements": {
+        "production-app-host": {
+          "roles": [
+            "host_baseline",
+            "edge",
+            "application",
+            "monitoring_agent",
+            "backup_agent"
+          ],
+          "environments": [
+            "production"
+          ]
+        },
+        "production-database-host": {
+          "roles": [
+            "host_baseline",
+            "database",
+            "monitoring_agent",
+            "backup_agent"
+          ],
+          "environments": [
+            "production"
+          ]
+        },
+        "nonproduction-host": {
+          "roles": [
+            "host_baseline",
+            "edge",
+            "application",
+            "database",
+            "monitoring_server",
+            "monitoring_agent",
+            "backup_agent"
+          ],
+          "environments": [
+            "development",
+            "staging"
+          ]
+        }
+      }
+    }
+  }
+}

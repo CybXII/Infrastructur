@@ -1,0 +1,43 @@
+rule_files:
+  - /etc/prometheus/rules/alloy.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: alloy-down
+    interval: 1m
+    input_series:
+      - series: 'up{job="alloy",instance="host-01"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: AlloyDown
+        exp_alerts:
+          - exp_labels:
+              severity: high
+              owner: platform
+              job: alloy
+              instance: host-01
+            exp_annotations:
+              summary: Grafana Alloy is unreachable
+              description: Prometheus cannot scrape the Alloy host agent for at least two minutes.
+              runbook: docs/67-alloy.md
+
+  - name: alloy-memory-near-limit
+    interval: 1m
+    input_series:
+      - series: 'process_resident_memory_bytes{job="alloy",instance="host-01"}'
+        values: '480000000x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: AlloyMemoryNearLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              owner: platform
+              job: alloy
+              instance: host-01
+            exp_annotations:
+              summary: Grafana Alloy memory usage is near its systemd limit
+              description: Alloy resident memory is above 450 MiB while MemoryMax is 512 MiB.
+              runbook: docs/67-alloy.md

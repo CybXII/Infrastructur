@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "scope": {
+    "managed_container_label": "com.merchfactory.managed",
+    "managed_container_value": "true",
+    "protected_container_label": "com.merchfactory.cleanup.protect",
+    "protected_container_value": "true",
+    "cleanup_allowed_without_release_state": false
+  },
+  "deployment_state": {
+    "root": "/srv/merchfactory/deployments",
+    "protected_previous_versions": 2,
+    "stable_last_attempt_statuses": [
+      "success",
+      "failed-rolled-back",
+      "manual-rollback-success"
+    ]
+  },
+  "retention": {
+    "stopped_managed_containers_days": 7,
+    "unused_allowed_images_days": 30,
+    "dangling_images_days": 7,
+    "build_cache_retention": "168h"
+  },
+  "schedule": {
+    "on_calendar": "Sun *-*-* 04:30:00",
+    "randomized_delay_sec": 900,
+    "persistent": true
+  },
+  "safety": {
+    "remove_volumes": false,
+    "force_remove_images": false,
+    "protect_running_container_images": true,
+    "protect_remaining_container_images": true,
+    "protect_release_state_images": true,
+    "require_stable_deployment_state": true,
+    "single_cleanup_lock": true
+  }
+}

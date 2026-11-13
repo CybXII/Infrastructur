@@ -1,0 +1,24 @@
+version: 1
+service: loki
+
+liveness:
+  transport: docker-healthcheck
+  command:
+    - /usr/bin/loki
+    - -version
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 15s
+  automatic_restart_on_unhealthy: false
+
+readiness:
+  transport: internal-http
+  endpoint: http://loki:3100/ready
+  expected_status: 200
+  public_ingress: false
+
+notes:
+  - Das offizielle Loki-Image ist distroless; der Container enthält keinen Shell-/HTTP-Client für einen internen HTTP-Docker-Healthcheck.
+  - Die Docker-Liveness prüft deshalb die ausführbare Loki-Binary; die echte HTTP-Readiness wird aus dem internen Monitoring-Netz geprüft.
+  - Loki besitzt keinen Host-Port und keinen Traefik-Router.

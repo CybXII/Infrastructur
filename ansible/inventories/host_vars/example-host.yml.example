@@ -1,0 +1,18 @@
+---
+# Beispiel für hostspezifische, NICHT geheime Variablen.
+# Die Datei wird wegen der Endung .example nicht automatisch als host_vars-Datei geladen.
+# Für einen echten Host z. B. nach
+# inventories/production/host_vars/app-01.yml kopieren.
+
+ansible_host: app-01.example.invalid
+ansible_port: 22
+
+# Beispiel für eine hostspezifische Storage-Abweichung:
+# storage_mounts:
+#   - path: /srv/merchfactory/persistent
+#     src: /dev/disk/by-id/example-device
+#     fstype: xfs
+#     opts: defaults,noatime
+#     state: mounted
+
+# Keine Passwörter, privaten Schlüssel, Tokens oder Vault-Passwörter hier ablegen.

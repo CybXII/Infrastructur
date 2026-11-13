@@ -1,0 +1,44 @@
+version: 1
+service: {{SERVICE_NAME}}
+
+liveness:
+  transport: docker-healthcheck
+  command: "{{HEALTHCHECK_COMMAND}}"
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 10s
+  scope: local-process-and-local-runtime-only
+  automatic_restart_on_unhealthy: false
+
+readiness:
+  transport: traefik-active-healthcheck
+  path: "{{READINESS_PATH}}"
+  interval: 10s
+  timeout: 3s
+  expected_status: 200
+  scope: request-serving-capability-and-required-request-path-dependencies
+
+external_probe:
+  type: https
+  url: https://{{PUBLIC_HOSTNAME}}{{READINESS_PATH}}
+  interval: 30s
+  timeout: 5s
+  expected_status: 200
+  warning_after_failures: 2
+  critical_after_failures: 5
+
+failure_actions:
+  liveness_unhealthy:
+    action: alert-and-diagnose
+    automatic_restart: false
+  readiness_failed:
+    action: remove-backend-from-traefik-rotation
+    automatic_restart: false
+  external_probe_failed:
+    action: alert
+
+notes:
+  - Remote APIs und optionale Abhängigkeiten gehören nicht in Liveness.
+  - Readiness darf nur für den Request-Pfad zwingende Abhängigkeiten prüfen.
+  - Details und Ausnahmen stehen in docs/54-healthcheck-standards.md.

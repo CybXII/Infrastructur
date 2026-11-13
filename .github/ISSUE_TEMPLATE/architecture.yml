@@ -1,0 +1,53 @@
+name: Architekturthema erfassen
+description: Architekturentscheidung, technische Leitplanke oder strukturelle Änderung vorbereiten.
+title: "Architecture: "
+labels:
+  - architecture
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Kontext und Problemstellung
+      description: Welche Ausgangslage oder Einschränkung erfordert eine Architekturentscheidung?
+    validations:
+      required: true
+  - type: textarea
+    id: decision
+    attributes:
+      label: Vorgeschlagene Entscheidung
+      description: Welche Lösung oder Leitplanke soll geprüft werden?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativen
+      description: Welche realistischen Alternativen wurden betrachtet?
+    validations:
+      required: true
+  - type: textarea
+    id: consequences
+    attributes:
+      label: Auswirkungen und Konsequenzen
+      description: Positive und negative Auswirkungen auf Sicherheit, Betrieb, Wartbarkeit und Kosten.
+    validations:
+      required: true
+  - type: textarea
+    id: adr
+    attributes:
+      label: ADR-Bedarf
+      description: Benenne das bestehende ADR oder begründe, warum ein neues ADR erforderlich ist.
+    validations:
+      required: true
+  - type: textarea
+    id: definition-of-done
+    attributes:
+      label: Definition of Done
+      description: Welche überprüfbaren Bedingungen müssen für den Abschluss erfüllt sein?
+      placeholder: |
+        - [ ] Entscheidung dokumentiert
+        - [ ] Alternativen bewertet
+        - [ ] ADR erstellt oder aktualisiert
+        - [ ] Folgetasks verknüpft
+    validations:
+      required: true

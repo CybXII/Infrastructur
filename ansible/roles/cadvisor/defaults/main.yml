@@ -1,0 +1,49 @@
+---
+cadvisor_enabled: true
+
+cadvisor_version: "0.60.5"
+cadvisor_binary_name: "cadvisor-v{{ cadvisor_version }}-linux-amd64"
+cadvisor_download_url: >-
+  https://github.com/google/cadvisor/releases/download/v{{ cadvisor_version }}/{{ cadvisor_binary_name }}
+cadvisor_binary_sha256: "6f258bed28113218c88729634c47ead8d928b81b1504b75fd911b98d29003a87"
+
+cadvisor_system_user: root
+cadvisor_system_group: root
+cadvisor_binary_path: /usr/local/bin/cadvisor
+cadvisor_cache_dir: /var/lib/merchfactory/downloads
+cadvisor_download_path: "{{ cadvisor_cache_dir }}/{{ cadvisor_binary_name }}"
+cadvisor_service_name: cadvisor.service
+cadvisor_service_path: "/etc/systemd/system/{{ cadvisor_service_name }}"
+
+cadvisor_monitoring_network: merchfactory-monitoring
+cadvisor_monitoring_subnet: 172.30.250.0/24
+cadvisor_monitoring_gateway: 172.30.250.1
+cadvisor_monitoring_bridge: mf-monitoring0
+cadvisor_listen_port: 8080
+cadvisor_listen_ip: "{{ cadvisor_monitoring_gateway }}"
+cadvisor_listen_address: "{{ cadvisor_listen_ip }}:{{ cadvisor_listen_port }}"
+
+cadvisor_network_script_source: "{{ playbook_dir }}/../../platform/network/scripts/prepare-monitoring-network.sh"
+cadvisor_network_script_path: /usr/local/sbin/merchfactory-prepare-monitoring-network
+
+cadvisor_docker_socket_path: /var/run/docker.sock
+cadvisor_docker_endpoint: "unix://{{ cadvisor_docker_socket_path }}"
+cadvisor_docker_only: true
+cadvisor_store_container_labels: false
+cadvisor_whitelisted_container_labels: >-
+  com.merchfactory.managed,com.merchfactory.cleanup.protect,com.docker.compose.project,com.docker.compose.service
+
+cadvisor_housekeeping_interval: 30s
+cadvisor_max_housekeeping_interval: 1m
+cadvisor_global_housekeeping_interval: 1m
+cadvisor_storage_duration: 2m
+
+# Avoid expensive per-container overlayfs disk traversals on high-churn hosts.
+# Disabling disk and diskIO removes filesystem usage/inodes and block-I/O metrics.
+# An empty string omits the flag and restores upstream defaults (including disk/I/O);
+# the default list mirrors cAdvisor's disabled-by-default collectors plus disk/diskIO.
+cadvisor_disable_metrics: "advtcp,cpu_topology,cpuset,disk,diskIO,hugetlb,memory_numa,process,referenced_memory,resctrl,sched,tcp,udp"
+
+cadvisor_cpu_quota: 50%
+cadvisor_memory_max: 1028M
+cadvisor_tasks_max: 256

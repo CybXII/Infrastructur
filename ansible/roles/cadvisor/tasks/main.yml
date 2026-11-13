@@ -1,0 +1,195 @@
+---
+- name: cAdvisor-Variablen validieren
+  ansible.builtin.assert:
+    that:
+      - cadvisor_version is match('^[0-9]+\.[0-9]+\.[0-9]+$')
+      - cadvisor_download_url is match('^https://github\.com/google/cadvisor/releases/download/')
+      - cadvisor_binary_sha256 is match('^[0-9a-f]{64}$')
+      - cadvisor_system_user == 'root'
+      - cadvisor_system_group == 'root'
+      - cadvisor_binary_path is match('^/')
+      - cadvisor_docker_socket_path is match('^/')
+      - cadvisor_docker_endpoint == 'unix:///var/run/docker.sock'
+      - cadvisor_monitoring_network | length > 0
+      - cadvisor_monitoring_subnet is match('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$')
+      - cadvisor_monitoring_gateway is match('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+      - cadvisor_monitoring_bridge | length > 0
+      - cadvisor_monitoring_bridge | length <= 15
+      - cadvisor_listen_port | int > 0
+      - cadvisor_listen_port | int < 65536
+      - cadvisor_tasks_max | int > 0
+      - cadvisor_disable_metrics in ['', 'advtcp,cpu_topology,cpuset,disk,diskIO,hugetlb,memory_numa,process,referenced_memory,resctrl,sched,tcp,udp']
+    fail_msg: Ungültige cAdvisor-Konfiguration.
+  when: cadvisor_enabled | bool
+
+- name: Docker-Socket für cAdvisor prüfen
+  ansible.builtin.stat:
+    path: "{{ cadvisor_docker_socket_path }}"
+  register: cadvisor_docker_socket
+  when: cadvisor_enabled | bool
+
+- name: Docker-Socket für cAdvisor bestätigen
+  ansible.builtin.assert:
+    that:
+      - cadvisor_docker_socket.stat.exists
+      - cadvisor_docker_socket.stat.issock | default(false)
+    fail_msg: cAdvisor benötigt den lokalen Docker-Unix-Socket.
+  when: cadvisor_enabled | bool
+
+- name: cAdvisor-Cacheverzeichnis anlegen
+  ansible.builtin.file:
+    path: "{{ cadvisor_cache_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  when: cadvisor_enabled | bool
+
+- name: Monitoring-Netzwerkskript installieren
+  ansible.builtin.copy:
+    src: "{{ cadvisor_network_script_source }}"
+    dest: "{{ cadvisor_network_script_path }}"
+    owner: root
+    group: root
+    mode: '0750'
+  when: cadvisor_enabled | bool
+
+- name: Monitoring-Netzwerkzustand für cAdvisor prüfen
+  ansible.builtin.command:
+    argv:
+      - docker
+      - network
+      - inspect
+      - "{{ cadvisor_monitoring_network }}"
+  register: cadvisor_monitoring_network_inspect
+  changed_when: false
+  failed_when: false
+  when: cadvisor_enabled | bool
+
+- name: Monitoring-Netzwerk für cAdvisor erstellen
+  ansible.builtin.command:
+    argv:
+      - "{{ cadvisor_network_script_path }}"
+  environment:
+    MERCHFACTORY_MONITORING_NETWORK: "{{ cadvisor_monitoring_network }}"
+    MERCHFACTORY_MONITORING_SUBNET: "{{ cadvisor_monitoring_subnet }}"
+    MERCHFACTORY_MONITORING_GATEWAY: "{{ cadvisor_monitoring_gateway }}"
+    MERCHFACTORY_MONITORING_BRIDGE: "{{ cadvisor_monitoring_bridge }}"
+  when:
+    - cadvisor_enabled | bool
+    - cadvisor_monitoring_network_inspect.rc != 0
+  changed_when: true
+
+- name: Monitoring-Netzwerk für cAdvisor validieren
+  ansible.builtin.command:
+    argv:
+      - "{{ cadvisor_network_script_path }}"
+  environment:
+    MERCHFACTORY_MONITORING_NETWORK: "{{ cadvisor_monitoring_network }}"
+    MERCHFACTORY_MONITORING_SUBNET: "{{ cadvisor_monitoring_subnet }}"
+    MERCHFACTORY_MONITORING_GATEWAY: "{{ cadvisor_monitoring_gateway }}"
+    MERCHFACTORY_MONITORING_BRIDGE: "{{ cadvisor_monitoring_bridge }}"
+  when:
+    - cadvisor_enabled | bool
+    - cadvisor_monitoring_network_inspect.rc == 0
+  changed_when: false
+
+- name: cAdvisor-Binary mit SHA256-Prüfung herunterladen
+  ansible.builtin.get_url:
+    url: "{{ cadvisor_download_url }}"
+    dest: "{{ cadvisor_download_path }}"
+    owner: root
+    group: root
+    mode: '0750'
+    checksum: "sha256:{{ cadvisor_binary_sha256 }}"
+  when: cadvisor_enabled | bool
+
+- name: cAdvisor-Binary installieren
+  ansible.builtin.copy:
+    src: "{{ cadvisor_download_path }}"
+    dest: "{{ cadvisor_binary_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0755'
+  notify: cAdvisor neu starten
+  when: cadvisor_enabled | bool
+
+- name: cAdvisor-systemd-Unit installieren
+  ansible.builtin.template:
+    src: cadvisor.service.j2
+    dest: "{{ cadvisor_service_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - systemd für cAdvisor neu laden
+    - cAdvisor neu starten
+  when: cadvisor_enabled | bool
+
+- name: cAdvisor-Handler anwenden
+  ansible.builtin.meta: flush_handlers
+  when: cadvisor_enabled | bool
+
+- name: cAdvisor aktivieren und starten
+  ansible.builtin.systemd_service:
+    name: "{{ cadvisor_service_name }}"
+    enabled: true
+    state: started
+  when: cadvisor_enabled | bool
+
+- name: cAdvisor-Dienststatus prüfen
+  ansible.builtin.command:
+    cmd: "systemctl is-active {{ cadvisor_service_name }}"
+  register: cadvisor_service_status
+  changed_when: false
+  when: cadvisor_enabled | bool
+
+- name: cAdvisor-Version prüfen
+  ansible.builtin.command:
+    argv:
+      - "{{ cadvisor_binary_path }}"
+      - --version
+  register: cadvisor_version_output
+  changed_when: false
+  when: cadvisor_enabled | bool
+
+- name: cAdvisor-Metrikendpunkt lokal über Monitoring-Gateway prüfen
+  ansible.builtin.uri:
+    url: "http://{{ cadvisor_listen_address }}/metrics"
+    method: GET
+    status_code: 200
+    return_content: true
+    use_proxy: false
+  register: cadvisor_metrics
+  retries: 15
+  delay: 1
+  until: cadvisor_metrics.status | default(0) == 200
+  changed_when: false
+  when: cadvisor_enabled | bool
+
+- name: cAdvisor-Listener prüfen
+  ansible.builtin.command:
+    argv:
+      - ss
+      - -ltnH
+      - "sport = :{{ cadvisor_listen_port }}"
+  register: cadvisor_listener
+  changed_when: false
+  when: cadvisor_enabled | bool
+
+- name: cAdvisor-Baseline bestätigen
+  ansible.builtin.assert:
+    that:
+      - cadvisor_service_status.stdout | trim == 'active'
+      - cadvisor_version in (cadvisor_version_output.stdout ~ cadvisor_version_output.stderr)
+      - "'container_cpu_usage_seconds_total' in cadvisor_metrics.content"
+      - "'container_memory_working_set_bytes' in cadvisor_metrics.content"
+      - "'container_network_receive_bytes_total' in cadvisor_metrics.content"
+      - "('container_fs_usage_bytes' in cadvisor_metrics.content) if 'disk' not in cadvisor_disable_metrics.split(',') else ('container_fs_usage_bytes' not in cadvisor_metrics.content)"
+      - "'container_start_time_seconds' in cadvisor_metrics.content"
+      - cadvisor_monitoring_gateway in cadvisor_listener.stdout
+      - "'0.0.0.0:' ~ (cadvisor_listen_port | string) not in cadvisor_listener.stdout"
+      - "'[::]:' ~ (cadvisor_listen_port | string) not in cadvisor_listener.stdout"
+    fail_msg: cAdvisor entspricht nicht der erwarteten Container-Monitoring-Baseline.
+  when: cadvisor_enabled | bool

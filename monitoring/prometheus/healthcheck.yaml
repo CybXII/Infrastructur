@@ -1,0 +1,26 @@
+version: 1
+service: prometheus
+
+liveness:
+  transport: docker-healthcheck
+  endpoint: http://127.0.0.1:9090/-/healthy
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 15s
+  automatic_restart_on_unhealthy: false
+
+readiness:
+  transport: internal-http
+  endpoint: http://prometheus:9090/-/ready
+  expected_status: 200
+  public_ingress: false
+
+self_monitoring:
+  scrape_job: prometheus
+  endpoint: http://127.0.0.1:9090/metrics
+  rules: /etc/prometheus/rules/self-monitoring.yml
+
+notes:
+  - Prometheus besitzt keinen regulären Traefik-Router und keinen Host-Port.
+  - Externe Überwachung der Monitoring-Plattform selbst wird in Issue #95 ergänzt.
