@@ -1,0 +1,4 @@
+# Keep shell scripts compatible with Linux runners and Ansible hosts.
+# CRLF causes Bash to fail at `set -Eeuo pipefail` before tests run.
+*.sh text eol=lf
+*.bash text eol=lf
